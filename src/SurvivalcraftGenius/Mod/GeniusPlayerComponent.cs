@@ -43,6 +43,8 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     private LlmClient? _llmClient;
     private GeniusAgent? _agent;
     private GeniusChatDialog? _dialog;
+    private CancellationTokenSource? _turnCts;
+    private string? _pendingMessage;
 
     public UpdateOrder UpdateOrder => UpdateOrder.Default;
 
@@ -115,14 +117,28 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             return;
         }
 
-        if (!_agent.TryBeginTurn())
+        StartOrQueueTurn(text);
+    }
+
+    /// <summary>
+    /// Starts a turn now, or — if one is running — cancels it and queues this
+    /// message to run as soon as the old turn unwinds (M2: interruption).
+    /// </summary>
+    private void StartOrQueueTurn(string text)
+    {
+        if (!_agent!.TryBeginTurn())
         {
-            AppendLog(GeniusChatRole.Info, "Genius 正在忙上一条指令,请稍候…");
+            _pendingMessage = text;
+            _turnCts?.Cancel();
+            FindBrain()?.StopMoving();
+            AppendLog(GeniusChatRole.Info, "已打断当前任务,马上执行新指令…");
             return;
         }
 
+        _turnCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        var token = _turnCts.Token;
         var agent = _agent;
-        _ = Task.Run(() => agent.RunTurnAsync(text, _lifetime.Token), _lifetime.Token);
+        _ = Task.Run(() => agent.RunTurnAsync(text, token), token);
     }
 
     public void SummonNpc()
@@ -282,6 +298,13 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                     AppendLog(GeniusChatRole.Info, $"出错:{agentEvent.Text}");
                     break;
                 case AgentEventKind.TurnFinished:
+                    if (_pendingMessage is not null)
+                    {
+                        var pending = _pendingMessage;
+                        _pendingMessage = null;
+                        StartOrQueueTurn(pending);
+                    }
+
                     break;
             }
         });
@@ -376,9 +399,125 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 return order.Completion;
             }
 
+            case "collect_items":
+            {
+                var order = new CollectItemsOrder();
+                brain.StartOrder(order);
+                return order.Completion;
+            }
+
+            case "take_from_chest":
+            {
+                var order = new TakeFromChestOrder(
+                    ReadPoint(arguments),
+                    (string?)arguments["item_name"],
+                    (int?)arguments["max_count"] ?? int.MaxValue);
+                brain.StartOrder(order);
+                return order.Completion;
+            }
+
+            case "put_into_chest":
+            {
+                var order = new PutIntoChestOrder(ReadPoint(arguments), (string?)arguments["item_name"]);
+                brain.StartOrder(order);
+                return order.Completion;
+            }
+
+            case "craft":
+            {
+                var order = new CraftOrder(
+                    (string?)arguments["item_name"] ?? "",
+                    (int?)arguments["count"] ?? 1);
+                brain.StartOrder(order);
+                return order.Completion;
+            }
+
+            case "smelt":
+            {
+                var order = new SmeltOrder(
+                    (string?)arguments["item_name"] ?? "",
+                    (int?)arguments["count"] ?? 1);
+                brain.StartOrder(order);
+                return order.Completion;
+            }
+
+            case "give_to_player":
+            {
+                var order = new GiveToPlayerOrder(
+                    m_componentPlayer.ComponentBody,
+                    (string?)arguments["item_name"],
+                    (int?)arguments["max_count"] ?? int.MaxValue);
+                brain.StartOrder(order);
+                return order.Completion;
+            }
+
+            case "equip_tool":
+            {
+                var inventory = brain.Miner.Inventory;
+                var slotIndex = (int?)arguments["slot_index"] ?? -1;
+                if (inventory is null || slotIndex < 0 || slotIndex >= inventory.SlotsCount)
+                {
+                    return Task.FromResult("error: invalid slot index");
+                }
+
+                inventory.ActiveSlotIndex = slotIndex;
+                var value = inventory.GetSlotValue(slotIndex);
+                var equippedName = value == 0
+                    ? "empty hand"
+                    : BlocksManager.Blocks[Terrain.ExtractContents(value)]
+                        .GetDisplayName(brain.SubsystemTerrain, value);
+                return Task.FromResult($"equipped: {equippedName}");
+            }
+
+            case "attack":
+            {
+                var query = (string?)arguments["target_name"] ?? "";
+                var target = FindAttackTarget(brain, query);
+                if (target is null)
+                {
+                    return Task.FromResult($"error: no creature matching '{query}' within 24m");
+                }
+
+                var order = new AttackOrder(target);
+                brain.StartOrder(order);
+                return order.Completion;
+            }
+
             default:
                 return Task.FromResult($"error: unknown tool '{name}'");
         }
+    }
+
+    private ComponentCreature? FindAttackTarget(ComponentGeniusBrain brain, string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return null;
+        }
+
+        ComponentCreature? best = null;
+        var bestDistance = 24f;
+        foreach (var body in m_subsystemBodies.Bodies)
+        {
+            var creature = body.Entity.FindComponent<ComponentCreature>();
+            if (creature is null
+                || creature is ComponentPlayer
+                || creature == brain.Creature
+                || creature.ComponentHealth.Health <= 0f
+                || !creature.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var distance = Vector3.Distance(body.Position, brain.Creature.ComponentBody.Position);
+            if (distance < bestDistance)
+            {
+                best = creature;
+                bestDistance = distance;
+            }
+        }
+
+        return best;
     }
 
     private ComponentGeniusBrain? FindBrain()

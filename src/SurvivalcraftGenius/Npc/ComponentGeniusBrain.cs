@@ -16,6 +16,8 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     public SubsystemTerrain m_subsystemTerrain = null!;
     public SubsystemTime m_subsystemTime = null!;
     public SubsystemBodies m_subsystemBodies = null!;
+    public SubsystemPickables m_subsystemPickables = null!;
+    public SubsystemBlockEntities m_subsystemBlockEntities = null!;
     public ComponentCreature m_componentCreature = null!;
     public ComponentPathfinding m_componentPathfinding = null!;
     public ComponentMiner m_componentMiner = null!;
@@ -46,6 +48,10 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     public SubsystemTerrain SubsystemTerrain => m_subsystemTerrain;
 
     public SubsystemBodies SubsystemBodies => m_subsystemBodies;
+
+    public SubsystemPickables SubsystemPickables => m_subsystemPickables;
+
+    public SubsystemBlockEntities SubsystemBlockEntities => m_subsystemBlockEntities;
 
     public bool HasActiveOrder => _order is not null;
 
@@ -132,6 +138,8 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         m_subsystemTerrain = Project.FindSubsystem<SubsystemTerrain>(throwOnError: true);
         m_subsystemTime = Project.FindSubsystem<SubsystemTime>(throwOnError: true);
         m_subsystemBodies = Project.FindSubsystem<SubsystemBodies>(throwOnError: true);
+        m_subsystemPickables = Project.FindSubsystem<SubsystemPickables>(throwOnError: true);
+        m_subsystemBlockEntities = Project.FindSubsystem<SubsystemBlockEntities>(throwOnError: true);
         m_componentCreature = Entity.FindComponent<ComponentCreature>(throwOnError: true)!;
         m_componentPathfinding = Entity.FindComponent<ComponentPathfinding>(throwOnError: true)!;
         m_componentMiner = Entity.FindComponent<ComponentMiner>(throwOnError: true)!;
@@ -311,6 +319,7 @@ public sealed class DigOrder(Point3 target) : GeniusOrder
         {
             if (distance <= ReachDistance)
             {
+                EquipBestToolFor(brain, cellValue);
                 var activeValue = brain.Miner.ActiveBlockValue;
                 _digTimeNeeded = brain.Miner.CalculateDigTime(cellValue, Terrain.ExtractContents(activeValue));
                 if (float.IsPositiveInfinity(_digTimeNeeded))
@@ -358,7 +367,36 @@ public sealed class DigOrder(Point3 target) : GeniusOrder
             0,
             noDrop: false,
             noParticleSystem: false);
+        brain.Miner.DamageActiveTool(1);
         return $"dug '{blockName}' at ({target.X}, {target.Y}, {target.Z}); drops fell on the ground";
+    }
+
+    /// <summary>Switches the active slot to whichever tool digs this block fastest.</summary>
+    private static void EquipBestToolFor(ComponentGeniusBrain brain, int cellValue)
+    {
+        var inventory = brain.Miner.Inventory;
+        if (inventory is null)
+        {
+            return;
+        }
+
+        var bestSlot = inventory.ActiveSlotIndex;
+        var bestTime = brain.Miner.CalculateDigTime(
+            cellValue,
+            Terrain.ExtractContents(inventory.GetSlotValue(bestSlot)));
+        for (var slot = 0; slot < inventory.SlotsCount; slot++)
+        {
+            var candidate = brain.Miner.CalculateDigTime(
+                cellValue,
+                Terrain.ExtractContents(inventory.GetSlotValue(slot)));
+            if (candidate < bestTime)
+            {
+                bestTime = candidate;
+                bestSlot = slot;
+            }
+        }
+
+        inventory.ActiveSlotIndex = bestSlot;
     }
 }
 

@@ -63,6 +63,76 @@ public static class ToolCatalog
             "get_inventory",
             "List your inventory slots with item names and counts.",
             NoParameters));
+        registry.Register(new GeniusToolDefinition(
+            "collect_items",
+            "Walk around and pick up all dropped items within ~14m into your inventory. Use after digging.",
+            NoParameters));
+        registry.Register(new GeniusToolDefinition(
+            "take_from_chest",
+            "Walk to the chest at the given coordinate and move items from it into your inventory.",
+            """
+            {"type":"object","properties":{
+              "x":{"type":"integer"},
+              "y":{"type":"integer"},
+              "z":{"type":"integer"},
+              "item_name":{"type":"string","description":"Optional name substring filter; omit to take everything."},
+              "max_count":{"type":"integer","description":"Optional cap on items to take; omit for all."}},
+             "required":["x","y","z"]}
+            """));
+        registry.Register(new GeniusToolDefinition(
+            "craft",
+            "Craft items from your inventory ingredients. 3x3 recipes need a crafting table within ~5 blocks. Check get_inventory first.",
+            """
+            {"type":"object","properties":{
+              "item_name":{"type":"string","description":"Result item name (display name or English crafting id substring)."},
+              "count":{"type":"integer","description":"How many result items to craft; default 1."}},
+             "required":["item_name"]}
+            """));
+        registry.Register(new GeniusToolDefinition(
+            "smelt",
+            "Smelt items using a furnace recipe. Needs a furnace within ~5 blocks and fuel (coal/wood/planks) in your inventory.",
+            """
+            {"type":"object","properties":{
+              "item_name":{"type":"string","description":"Result or input item name substring, e.g. iron."},
+              "count":{"type":"integer","description":"How many results to smelt; default 1."}},
+             "required":["item_name"]}
+            """));
+        registry.Register(new GeniusToolDefinition(
+            "give_to_player",
+            "Walk to the player and hand over (matching) items from your inventory.",
+            """
+            {"type":"object","properties":{
+              "item_name":{"type":"string","description":"Optional name substring filter; omit to give everything."},
+              "max_count":{"type":"integer","description":"Optional cap; omit for all."}},
+             "required":[]}
+            """));
+        registry.Register(new GeniusToolDefinition(
+            "equip_tool",
+            "Set which inventory slot is in your hand (used for digging and fighting).",
+            """
+            {"type":"object","properties":{
+              "slot_index":{"type":"integer"}},
+             "required":["slot_index"]}
+            """));
+        registry.Register(new GeniusToolDefinition(
+            "attack",
+            "Chase and melee-attack the named creature until it dies or escapes. Cannot target the player.",
+            """
+            {"type":"object","properties":{
+              "target_name":{"type":"string","description":"Creature display name substring, e.g. wolf/狼."}},
+             "required":["target_name"]}
+            """));
+        registry.Register(new GeniusToolDefinition(
+            "put_into_chest",
+            "Walk to the chest at the given coordinate and store your inventory items into it.",
+            """
+            {"type":"object","properties":{
+              "x":{"type":"integer"},
+              "y":{"type":"integer"},
+              "z":{"type":"integer"},
+              "item_name":{"type":"string","description":"Optional name substring filter; omit to store everything."}},
+             "required":["x","y","z"]}
+            """));
         return registry;
     }
 }

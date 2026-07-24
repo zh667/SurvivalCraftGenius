@@ -114,12 +114,36 @@ public static class GeniusPerception
             });
         }
 
+        var droppedItems = new JArray();
+        foreach (var pickable in brain.SubsystemPickables.Pickables)
+        {
+            if (pickable.ToRemove)
+            {
+                continue;
+            }
+
+            var distance = Vector3.Distance(pickable.Position, center);
+            if (distance > CreatureScanRange || droppedItems.Count >= 20)
+            {
+                continue;
+            }
+
+            droppedItems.Add(new JObject
+            {
+                ["name"] = BlocksManager.Blocks[Terrain.ExtractContents(pickable.Value)]
+                    .GetDisplayName(brain.SubsystemTerrain, pickable.Value),
+                ["count"] = pickable.Count,
+                ["pos"] = PointArray(Terrain.ToCell(pickable.Position)),
+            });
+        }
+
         var result = new JObject
         {
             ["my_pos"] = PointArray(centerCell),
             ["block_counts_within_8m"] = blockCounts,
             ["uncommon_blocks"] = rareBlocks,
             ["creatures_within_16m"] = creatures,
+            ["dropped_items_within_16m"] = droppedItems,
         };
         if (playerBody is not null)
         {

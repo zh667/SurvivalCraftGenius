@@ -52,16 +52,17 @@ src/SurvivalcraftGenius/
 
 实机验证清单(M1 收尾):召唤出现人形 NPC / G 键对话 / scan 汇报 / goto 走到 / dig 真挖出掉落 / follow 跟随 / 设置保存生效。发现问题记 issue 修复。
 
-### M2 — 干真活
+### M2 — 干真活(代码已完成,待实机验证)
 
 **验收场景**:"帮我做一把石斧"——它检查背包、缺啥采啥(附近有料的前提下)、合成、交给玩家。
 
-- [ ] 工具 v2:`craft(recipe)` / `smelt` / `give_to_player` / `equip_tool` /
-      `attack(entity)` / `eat`
-- [ ] 合成走 `CraftingRecipesManager`,熔炼走 `ComponentFurnace` 交互
-- [ ] 挖掘选择正确工具、尊重耐久与硬度(不能用手瞬挖石头)
-- [ ] 战斗与自保:被攻击反击/撤退,饥饿自动进食
-- [ ] 多步任务的中断与恢复:玩家新指令可打断当前计划
+- [x] 工具 v2:`craft` / `smelt` / `give_to_player` / `equip_tool` / `attack` +
+      `collect_items` / `take_from_chest` / `put_into_chest`(拾取与箱子)
+- [x] 合成走 `CraftingRecipesManager` 配方(3 宽配方要求附近有工作台);熔炼要求附近有熔炉+背包燃料(简化模拟,不占用真实熔炉槽位)
+- [x] 挖掘自动选背包里最快的工具、尊重硬度(挖不动会如实汇报)、消耗耐久
+- [x] 自保:受伤逃跑(继承 LandAnimal 的 RunAwayBehavior);`attack` 按令战斗
+- [x] 多步任务的中断:玩家新指令会取消当前回合和行动,立即执行新指令
+- 说明:NPC 无饥饿系统(未挂 VitalStats),`eat` 无意义故未实现
 
 ### M3 — 自主远征(Numen 级核心)
 
