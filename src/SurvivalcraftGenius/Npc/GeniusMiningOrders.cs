@@ -31,7 +31,10 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
     private TunnelNavigator? _navigator;
     private int _dugCount;
 
-    protected override float TimeoutSeconds => 600f;
+    protected override float TimeoutSeconds => 1500f;
+
+    protected override string TimeoutResult() =>
+        Summary() + "; error: ran out of time — call mine_resource again with the remaining count to continue";
 
     protected override void OnStart(ComponentGeniusBrain brain)
     {

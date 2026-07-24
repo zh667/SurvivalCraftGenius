@@ -26,6 +26,7 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     private ComponentBody? _followTarget;
     private double _nextFollowUpdateTime;
     private float _suppressedTime;
+    private double _nextVacuumTime;
 
     public UpdateOrder UpdateOrder => UpdateOrder.Default;
 
@@ -86,6 +87,13 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
 
     public void Update(float dt)
     {
+        // Always vacuum drops at my feet — thrown gifts, dig spoils, loot.
+        if (m_subsystemTime.GameTime >= _nextVacuumTime)
+        {
+            _nextVacuumTime = m_subsystemTime.GameTime + 0.5;
+            VacuumNearbyPickables();
+        }
+
         if (_order is not null)
         {
             if (!IsActive)
@@ -184,6 +192,35 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         base.OnEntityRemoved();
     }
 
+    private void VacuumNearbyPickables()
+    {
+        if (m_componentMiner.Inventory is not { } inventory
+            || m_componentCreature.ComponentHealth.Health <= 0f)
+        {
+            return;
+        }
+
+        var myPosition = m_componentCreature.ComponentBody.Position;
+        foreach (var pickable in m_subsystemPickables.Pickables)
+        {
+            if (pickable.ToRemove
+                || Vector3.Distance(pickable.Position, myPosition) > 2.6f)
+            {
+                continue;
+            }
+
+            var leftover = ComponentInventoryBase.AcquireItems(inventory, pickable.Value, pickable.Count);
+            if (leftover == 0)
+            {
+                pickable.ToRemove = true;
+            }
+            else
+            {
+                pickable.Count = leftover;
+            }
+        }
+    }
+
     /// <summary>On death, drop everything carried so the player can recover it.</summary>
     private void SpillInventoryIfDead()
     {
@@ -242,7 +279,7 @@ public abstract class GeniusOrder
 
         if (brain.m_subsystemTime.GameTime >= _deadline)
         {
-            Finish("error: timed out");
+            Finish(TimeoutResult());
             return true;
         }
 
@@ -270,6 +307,9 @@ public abstract class GeniusOrder
     }
 
     protected abstract void OnStart(ComponentGeniusBrain brain);
+
+    /// <summary>Override to report partial progress when the order times out.</summary>
+    protected virtual string TimeoutResult() => "error: timed out";
 
     /// <summary>Returns null while running, or the final result string.</summary>
     protected abstract string? OnTick(ComponentGeniusBrain brain, float dt);

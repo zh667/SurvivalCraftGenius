@@ -32,6 +32,6 @@ public sealed class GeniusModLoader : ModLoader
 
     public override void __ModInitialize()
     {
-        Engine.Log.Information("[Genius] Mod initialized (v0.4.0).");
+        Engine.Log.Information("[Genius] Mod initialized (v0.4.1).");
     }
 }

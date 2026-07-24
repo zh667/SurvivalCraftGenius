@@ -172,20 +172,37 @@ public static class GeniusPerception
                 continue;
             }
 
-            slots.Add(new JObject
+            var block = BlocksManager.Blocks[Terrain.ExtractContents(value)];
+            var entry = new JObject
             {
                 ["slot_index"] = i,
-                ["name"] = BlocksManager.Blocks[Terrain.ExtractContents(value)]
-                    .GetDisplayName(brain.SubsystemTerrain, value),
+                ["name"] = block.GetDisplayName(brain.SubsystemTerrain, value),
                 ["count"] = count,
-            });
+            };
+            // Tool efficiency by mechanics, not by name — a 石锤 quarries like a
+            // stone pick and the model must judge by these numbers.
+            AddPower(entry, "quarry_power", block.GetQuarryPower(value));
+            AddPower(entry, "shovel_power", block.GetShovelPower(value));
+            AddPower(entry, "hack_power", block.GetHackPower(value));
+            AddPower(entry, "melee_power", block.GetMeleePower(value));
+            slots.Add(entry);
         }
 
         return new JObject
         {
             ["slots"] = slots,
-            ["note"] = slots.Count == 0 ? "inventory is empty" : "",
+            ["note"] = slots.Count == 0
+                ? "inventory is empty"
+                : "quarry=挖石/矿效率, shovel=挖土效率, hack=砍木效率, melee=攻击力; 数值>1 才算工具",
         }.ToString(Newtonsoft.Json.Formatting.None);
+    }
+
+    private static void AddPower(JObject entry, string key, float power)
+    {
+        if (power > 1f)
+        {
+            entry[key] = Math.Round(power, 1);
+        }
     }
 
     private static JArray PointArray(Point3 point)
