@@ -33,14 +33,19 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     {
         get
         {
+            // 310 outranks even low-health fleeing (300): orders run to the
+            // end — or to death, which the revive-and-resume loop handles.
             if (_order is not null)
             {
-                return 250f;
+                return 310f;
             }
 
             return _followTarget is not null ? 190f : 0f;
         }
     }
+
+    /// <summary>Where the NPC last died (for gear recovery); set on fatal removal.</summary>
+    public static Vector3? LastDeathPosition { get; private set; }
 
     public ComponentCreature Creature => m_componentCreature;
 
@@ -167,11 +172,14 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
 
     public override void OnEntityRemoved()
     {
+        var died = m_componentCreature.ComponentHealth.Health <= 0f;
         Engine.Log.Information(
             $"[Genius] NPC entity removed from project (pos={m_componentCreature.ComponentBody.Position}, " +
-            $"health={m_componentCreature.ComponentHealth.Health}).");
+            $"health={m_componentCreature.ComponentHealth.Health}, died={died}).");
         SpillInventoryIfDead();
-        _order?.Finish("error: the companion was removed from the world");
+        _order?.Finish(died
+            ? "error: I died on the job"
+            : "error: the companion was removed from the world");
         _order = null;
         base.OnEntityRemoved();
     }
@@ -185,6 +193,7 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
             return;
         }
 
+        LastDeathPosition = m_componentCreature.ComponentBody.Position;
         var position = m_componentCreature.ComponentBody.Position + new Vector3(0f, 0.5f, 0f);
         for (var slot = 0; slot < inventory.SlotsCount; slot++)
         {

@@ -152,7 +152,7 @@ public sealed class GeniusAgent
     /// <summary>Long-running expedition tools get generous timeouts regardless of settings.</summary>
     private static readonly Dictionary<string, int> LongToolTimeoutsSeconds = new(StringComparer.Ordinal)
     {
-        ["mine_resource"] = 660,
+        ["mine_resource"] = 1900,
         ["goto"] = 300,
     };
 

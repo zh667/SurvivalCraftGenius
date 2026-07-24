@@ -183,9 +183,16 @@ public sealed class TunnelNavigator(Vector3 target, bool allowDigging, float arr
                 continue;
             }
 
-            if (BlocksManager.Blocks[contents] is FluidBlock)
+            var block = BlocksManager.Blocks[contents];
+            if (block is WaterBlock)
             {
-                FailureReason = "there is liquid in the way — stopping to stay safe";
+                // Water is passable — swim through instead of digging.
+                continue;
+            }
+
+            if (block is FluidBlock)
+            {
+                FailureReason = "there is lava in the way — stopping to stay safe";
                 return NavStatus.Failed;
             }
 
@@ -300,7 +307,7 @@ public sealed class TunnelNavigator(Vector3 target, bool allowDigging, float arr
     {
         var contents = Terrain.ExtractContents(
             brain.SubsystemTerrain.Terrain.GetCellValue(cell.X, cell.Y, cell.Z));
-        if (contents != 0)
+        if (contents != 0 && BlocksManager.Blocks[contents] is not WaterBlock)
         {
             _pendingCells.Add(cell);
         }

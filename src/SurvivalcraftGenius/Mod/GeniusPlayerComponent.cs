@@ -395,13 +395,9 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             }
 
             case "mine_resource":
-            {
-                var order = new MineResourceOrder(
+                return RunResilientMiningAsync(
                     (string?)arguments["resource_name"] ?? "",
                     (int?)arguments["count"] ?? 1);
-                brain.StartOrder(order);
-                return order.Completion;
-            }
 
             case "dig_block":
             {
@@ -505,6 +501,111 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             default:
                 return Task.FromResult($"error: unknown tool '{name}'");
         }
+    }
+
+    private const string DeathMarker = "I died on the job";
+
+    /// <summary>
+    /// Result-oriented mining: if the NPC dies mid-expedition, resummon it,
+    /// tunnel back to the death spot, recover the dropped gear, and restart the
+    /// job. Gives up after three deaths.
+    /// </summary>
+    private async Task<string> RunResilientMiningAsync(string resource, int count)
+    {
+        var notes = "";
+        for (var life = 0; life < 3; life++)
+        {
+            var result = await StartOrderAsync(() => new MineResourceOrder(resource, count))
+                .ConfigureAwait(false);
+            if (result is null)
+            {
+                return notes + "error: the companion is not summoned";
+            }
+
+            if (!result.Contains(DeathMarker, StringComparison.Ordinal))
+            {
+                return notes.Length == 0 ? result : $"{notes}最终:{result}";
+            }
+
+            var deathPosition = ComponentGeniusBrain.LastDeathPosition;
+            var revived = await ReviveAsync().ConfigureAwait(false);
+            if (!revived)
+            {
+                return notes + "error: I died and could not be revived";
+            }
+
+            if (deathPosition is { } position)
+            {
+                var deathCell = Terrain.ToCell(position);
+                await StartOrderAsync(() => new GotoOrder(deathCell, digThrough: true))
+                    .ConfigureAwait(false);
+                var recovered = await StartOrderAsync(() => new CollectItemsOrder())
+                    .ConfigureAwait(false);
+                notes += $"(第{life + 1}次阵亡于({deathCell.X},{deathCell.Y},{deathCell.Z}),已复活并回收:{recovered})";
+            }
+        }
+
+        return notes + "error: 反复阵亡,任务中止 —— 那片区域太危险了";
+    }
+
+    private async Task<bool> ReviveAsync()
+    {
+        await OnMainThread(() =>
+        {
+            SummonNpc();
+            return true;
+        }).ConfigureAwait(false);
+        for (var i = 0; i < 30; i++)
+        {
+            if (await OnMainThread(() => IsNpcSummoned).ConfigureAwait(false))
+            {
+                return true;
+            }
+
+            await Task.Delay(200).ConfigureAwait(false);
+        }
+
+        return false;
+    }
+
+    /// <summary>Starts an order on the game thread and awaits its completion.</summary>
+    private async Task<string?> StartOrderAsync(Func<GeniusOrder> factory)
+    {
+        var completion = await OnMainThread<Task<string>?>(() =>
+        {
+            var brain = FindBrain();
+            if (brain is null)
+            {
+                return null;
+            }
+
+            var order = factory();
+            brain.StartOrder(order);
+            return order.Completion;
+        }).ConfigureAwait(false);
+        if (completion is null)
+        {
+            return null;
+        }
+
+        return await completion.ConfigureAwait(false);
+    }
+
+    private Task<T> OnMainThread<T>(Func<T> func)
+    {
+        var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _mainThreadQueue.Enqueue(() =>
+        {
+            try
+            {
+                completion.TrySetResult(func());
+            }
+            catch (Exception exception)
+            {
+                completion.TrySetException(exception);
+            }
+        });
+        return completion.Task;
     }
 
     private ComponentCreature? FindAttackTarget(ComponentGeniusBrain brain, string query)

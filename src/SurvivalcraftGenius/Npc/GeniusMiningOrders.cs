@@ -14,7 +14,6 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
     private const int SearchRadius = 24;
     private const int SearchDepth = 28;
     private const int SearchHeight = 8;
-    private const float LowHealthAbort = 0.4f;
 
     private enum Phase
     {
@@ -41,11 +40,6 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
 
     protected override string? OnTick(ComponentGeniusBrain brain, float dt)
     {
-        if (brain.Creature.ComponentHealth.Health < LowHealthAbort)
-        {
-            return Summary() + "; error: I'm badly hurt and had to stop";
-        }
-
         switch (_phase)
         {
             case Phase.Search:
