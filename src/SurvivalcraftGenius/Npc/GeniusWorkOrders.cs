@@ -112,7 +112,9 @@ public static class GeniusCrafting
         string query,
         bool furnaceRecipes)
     {
-        RecipeMatch? namedButUnsatisfied = null;
+        // Rank by specificity: exact display-name match first, then shortest
+        // containing name — "石块" must resolve to 石块, never to 钻石块.
+        var candidates = new List<(CraftingRecipe Recipe, string DisplayName, bool Exact)>();
         foreach (var recipe in CraftingRecipesManager.Recipes)
         {
             if (furnaceRecipes != recipe.RequiredHeatLevel > 0f || recipe.ResultValue == 0)
@@ -123,23 +125,32 @@ public static class GeniusCrafting
             var resultBlock = BlocksManager.Blocks[Terrain.ExtractContents(recipe.ResultValue)];
             var displayName = resultBlock.GetDisplayName(brain.SubsystemTerrain, recipe.ResultValue);
             var craftingId = resultBlock.GetCraftingId(recipe.ResultValue) ?? "";
-            if (!displayName.Contains(query, StringComparison.OrdinalIgnoreCase)
-                && !craftingId.Contains(query, StringComparison.OrdinalIgnoreCase))
+            var exact = string.Equals(displayName, query, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(craftingId, query, StringComparison.OrdinalIgnoreCase);
+            if (exact
+                || displayName.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || craftingId.Contains(query, StringComparison.OrdinalIgnoreCase))
             {
-                continue;
+                candidates.Add((recipe, displayName, exact));
             }
-
-            var needs = CountNeeds(recipe);
-            var match = new RecipeMatch(recipe, needs);
-            if (InventorySatisfies(inventory, needs))
-            {
-                return match;
-            }
-
-            namedButUnsatisfied ??= match;
         }
 
-        return namedButUnsatisfied;
+        var ordered = candidates
+            .OrderByDescending(candidate => candidate.Exact)
+            .ThenBy(candidate => candidate.DisplayName.Length)
+            .ToList();
+        foreach (var candidate in ordered)
+        {
+            var needs = CountNeeds(candidate.Recipe);
+            if (InventorySatisfies(inventory, needs))
+            {
+                return new RecipeMatch(candidate.Recipe, needs);
+            }
+        }
+
+        return ordered.Count > 0
+            ? new RecipeMatch(ordered[0].Recipe, CountNeeds(ordered[0].Recipe))
+            : null;
     }
 
     public static string DescribeNeeds(
@@ -170,10 +181,11 @@ public sealed class CraftOrder(string itemName, int count) : GeniusOrder
     private const float SecondsPerCraft = 1.2f;
 
     private GeniusCrafting.RecipeMatch? _match;
+    private TunnelNavigator? _approach;
     private int _crafted;
     private float _progress;
 
-    protected override float TimeoutSeconds => 60f;
+    protected override float TimeoutSeconds => 180f;
 
     protected override void OnStart(ComponentGeniusBrain brain)
     {
@@ -200,12 +212,35 @@ public sealed class CraftOrder(string itemName, int count) : GeniusOrder
                 return $"error: missing ingredients for '{itemName}' — needs " +
                     GeniusCrafting.DescribeNeeds(brain, _match.Needs) + " per item";
             }
+        }
 
-            if (GeniusCrafting.NeedsCraftingTable(_match.Recipe)
-                && !IsBlockNearby<CraftingTableBlock>(brain, 5))
+        // Walk to a crafting table on my own instead of erroring out.
+        if (GeniusCrafting.NeedsCraftingTable(_match.Recipe)
+            && !IsBlockNearby<CraftingTableBlock>(brain, 5))
+        {
+            if (_approach is null)
             {
-                return "error: this recipe needs a crafting table within ~5 blocks of me";
+                var table = FindNearestBlock<CraftingTableBlock>(brain, 32);
+                if (table is null)
+                {
+                    return "error: no crafting table within ~32 blocks — place one or lead me to one";
+                }
+
+                _approach = new TunnelNavigator(
+                    new Vector3(table.Value.X + 0.5f, table.Value.Y + 0.5f, table.Value.Z + 0.5f),
+                    allowDigging: false,
+                    arriveDistance: 4f);
             }
+
+            switch (_approach.Tick(brain, dt))
+            {
+                case NavStatus.Failed:
+                    return $"error: cannot reach the crafting table ({_approach.FailureReason})";
+                case NavStatus.Running:
+                    return null;
+            }
+
+            _approach = null;
         }
 
         _progress += dt;
@@ -245,24 +280,53 @@ public sealed class CraftOrder(string itemName, int count) : GeniusOrder
     internal static bool IsBlockNearby<TBlock>(ComponentGeniusBrain brain, int radius)
         where TBlock : Block
     {
+        return FindNearestBlock<TBlock>(brain, radius, verticalRadius: 2) is not null;
+    }
+
+    internal static Point3? FindNearestBlock<TBlock>(
+        ComponentGeniusBrain brain,
+        int radius,
+        int verticalRadius = 16)
+        where TBlock : Block
+    {
+        var terrain = brain.SubsystemTerrain.Terrain;
         var center = Terrain.ToCell(brain.Creature.ComponentBody.Position);
+        Point3? best = null;
+        var bestDistanceSquared = float.MaxValue;
         for (var dx = -radius; dx <= radius; dx++)
         {
-            for (var dy = -2; dy <= 2; dy++)
+            for (var dz = -radius; dz <= radius; dz++)
             {
-                for (var dz = -radius; dz <= radius; dz++)
+                if (terrain.GetChunkAtCell(center.X + dx, center.Z + dz) is null)
                 {
-                    var value = brain.SubsystemTerrain.Terrain.GetCellValue(
-                        center.X + dx, center.Y + dy, center.Z + dz);
-                    if (BlocksManager.Blocks[Terrain.ExtractContents(value)] is TBlock)
+                    continue;
+                }
+
+                for (var dy = -verticalRadius; dy <= verticalRadius; dy++)
+                {
+                    var y = center.Y + dy;
+                    if (y is < 1 or > 255)
                     {
-                        return true;
+                        continue;
+                    }
+
+                    var value = terrain.GetCellValue(center.X + dx, y, center.Z + dz);
+                    if (BlocksManager.Blocks[Terrain.ExtractContents(value)] is not TBlock)
+                    {
+                        continue;
+                    }
+
+                    var distanceSquared = dx * dx + dy * dy + dz * dz;
+                    if (distanceSquared < bestDistanceSquared)
+                    {
+                        bestDistanceSquared = distanceSquared;
+                        best = new Point3(center.X + dx, y, center.Z + dz);
                     }
                 }
             }
         }
 
-        return false;
+        return best;
     }
 }
 
@@ -275,10 +339,11 @@ public sealed class SmeltOrder(string itemName, int count) : GeniusOrder
     private const float SecondsPerSmelt = 5f;
 
     private GeniusCrafting.RecipeMatch? _match;
+    private TunnelNavigator? _approach;
     private int _smelted;
     private float _progress;
 
-    protected override float TimeoutSeconds => 150f;
+    protected override float TimeoutSeconds => 300f;
 
     protected override void OnStart(ComponentGeniusBrain brain)
     {
@@ -292,13 +357,35 @@ public sealed class SmeltOrder(string itemName, int count) : GeniusOrder
             return "error: I have no inventory";
         }
 
-        if (_match is null)
+        if (!CraftOrder.IsBlockNearby<FurnaceBlock>(brain, 5))
         {
-            if (!CraftOrder.IsBlockNearby<FurnaceBlock>(brain, 5))
+            if (_approach is null)
             {
-                return "error: I need a furnace within ~5 blocks of me";
+                var furnace = CraftOrder.FindNearestBlock<FurnaceBlock>(brain, 32);
+                if (furnace is null)
+                {
+                    return "error: no furnace within ~32 blocks — place one or lead me to one";
+                }
+
+                _approach = new TunnelNavigator(
+                    new Vector3(furnace.Value.X + 0.5f, furnace.Value.Y + 0.5f, furnace.Value.Z + 0.5f),
+                    allowDigging: false,
+                    arriveDistance: 4f);
             }
 
+            switch (_approach.Tick(brain, dt))
+            {
+                case NavStatus.Failed:
+                    return $"error: cannot reach the furnace ({_approach.FailureReason})";
+                case NavStatus.Running:
+                    return null;
+            }
+
+            _approach = null;
+        }
+
+        if (_match is null)
+        {
             _match = GeniusCrafting.FindRecipe(brain, inventory, itemName, furnaceRecipes: true);
             if (_match is null)
             {

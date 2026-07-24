@@ -225,6 +225,21 @@ public sealed class TunnelNavigator(Vector3 target, bool allowDigging, float arr
                 return NavStatus.Failed;
             }
 
+            // Never crawl through rock bare-handed for minutes (e.g. after the
+            // pick broke): bail out so the model crafts a tool first.
+            var cellValue = brain.SubsystemTerrain.Terrain.GetCellValue(cell.X, cell.Y, cell.Z);
+            TimedDigger.EquipBestToolFor(brain, cellValue);
+            var digTime = brain.Miner.CalculateDigTime(
+                cellValue, Terrain.ExtractContents(brain.Miner.ActiveBlockValue));
+            if (digTime > 8f)
+            {
+                var blockName = BlocksManager.Blocks[Terrain.ExtractContents(cellValue)]
+                    .GetDisplayName(brain.SubsystemTerrain, cellValue);
+                FailureReason = $"my tools are too weak/broken to tunnel through {blockName} " +
+                    "(craft or get a pick first)";
+                return NavStatus.Failed;
+            }
+
             _digger.Start(brain, cell);
             return NavStatus.Running;
         }

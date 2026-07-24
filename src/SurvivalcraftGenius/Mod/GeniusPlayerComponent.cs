@@ -128,10 +128,12 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     {
         if (!_agent!.TryBeginTurn())
         {
+            // Free the LLM loop but keep the running order working in the
+            // background — a status question must not kill a mining trip. The
+            // new turn can supersede the order by issuing a new action tool.
             _pendingMessage = text;
             _turnCts?.Cancel();
-            FindBrain()?.StopMoving();
-            AppendLog(GeniusChatRole.Info, "已打断当前任务,马上执行新指令…");
+            AppendLog(GeniusChatRole.Info, "已切到新指令(正在执行的动作会在后台继续)…");
             return;
         }
 
@@ -347,9 +349,22 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 ? $"error: {task.Exception?.GetBaseException().Message}"
                 : task.Result;
             Log.Information($"[Genius] tool {name} -> {Truncate(result, 240)}");
+            // If the owning turn was cancelled, the model never sees this
+            // result — surface it in chat so the player still gets the outcome.
+            if (LongRunningTools.Contains(name) && _agent?.IsBusy != true)
+            {
+                _mainThreadQueue.Enqueue(
+                    () => AppendLog(GeniusChatRole.Info, $"(后台完成) {name}: {Truncate(result, 140)}"));
+            }
+
             return result;
         });
     }
+
+    private static readonly HashSet<string> LongRunningTools = new(StringComparer.Ordinal)
+    {
+        "mine_resource", "goto", "craft", "smelt", "collect_items", "dig_block", "take_from_chest",
+    };
 
     private Task<string> ExecuteToolOnMainThread(string name, JObject arguments)
     {
