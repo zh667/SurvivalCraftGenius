@@ -121,7 +121,7 @@ public sealed class GeniusSettingsDialog : Dialog
             Close();
         }
 
-        Input.Clear();
+        InputIsolation.ShieldRestOfFrame(Input);
     }
 
     private void Close()
