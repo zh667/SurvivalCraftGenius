@@ -140,15 +140,28 @@ public sealed class GeniusSettingsDialog : Dialog
             Color = HintColor,
             Size = new Vector2(680f, 26f),
         });
+        var host = new CanvasWidget
+        {
+            Size = new Vector2(680f, 44f),
+            Margin = new Vector2(0f, 2f),
+        };
+        host.Children.Add(new RectangleWidget
+        {
+            FillColor = new Color(8, 12, 14),
+            OutlineColor = OutlineColor,
+        });
         var box = new TextBoxWidget
         {
             Text = value,
             MaximumLength = 400,
             FontScale = 0.62f,
-            Size = new Vector2(680f, 44f),
-            Margin = new Vector2(0f, 2f),
+            Size = new Vector2(660f, 34f),
+            Color = new Color(235, 240, 235),
+            HorizontalAlignment = WidgetAlignment.Center,
+            VerticalAlignment = WidgetAlignment.Center,
         };
-        stack.Children.Add(box);
+        host.Children.Add(box);
+        stack.Children.Add(host);
         return box;
     }
 }

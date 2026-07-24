@@ -92,14 +92,25 @@ public sealed class GeniusChatDialog : Dialog
             Margin = new Vector2(0f, 6f),
         };
         stack.Children.Add(inputRow);
+        var inputHost = new CanvasWidget { Size = new Vector2(560f, 46f) };
+        inputHost.Children.Add(new RectangleWidget
+        {
+            FillColor = new Color(8, 12, 14),
+            OutlineColor = OutlineColor,
+        });
         _inputBox = new TextBoxWidget
         {
-            Size = new Vector2(560f, 46f),
+            Size = new Vector2(540f, 36f),
             MaximumLength = 500,
             FontScale = 0.7f,
+            Color = new Color(235, 240, 235),
+            HorizontalAlignment = WidgetAlignment.Center,
+            VerticalAlignment = WidgetAlignment.Center,
+            HasFocus = true,
         };
         _inputBox.Enter += _ => Send();
-        inputRow.Children.Add(_inputBox);
+        inputHost.Children.Add(_inputBox);
+        inputRow.Children.Add(inputHost);
         _sendButton = MakeButton("发送", 120f);
         inputRow.Children.Add(_sendButton);
 
@@ -169,6 +180,7 @@ public sealed class GeniusChatDialog : Dialog
     {
         var text = _inputBox.Text;
         _inputBox.Text = "";
+        _inputBox.HasFocus = true;
         _component.SendChat(text);
     }
 
