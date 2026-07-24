@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SurvivalcraftGenius/SurvivalcraftGenius.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SurvivalcraftGenius.Tests/SurvivalcraftGenius.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>SurvivalcraftGenius</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Version>0.1.0</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+    <InformationalVersion>0.1.0</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <EnableSourceLink>false</EnableSourceLink>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="Survivalcraft">
+      <HintPath>$(SurvivalcraftDir)Survivalcraft.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Engine">
+      <HintPath>$(SurvivalcraftDir)Engine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="EntitySystem">
+      <HintPath>$(SurvivalcraftDir)EntitySystem.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(SurvivalcraftDir)Newtonsoft.Json.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

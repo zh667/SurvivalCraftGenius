@@ -1,0 +1,11 @@
+{
+  "Name": "Genius",
+  "Version": "0.1.0",
+  "ApiVersion": "1.44",
+  "Description": "AI companion for Survivalcraft: summon it, talk to it, and it plans and acts on its own.",
+  "ScVersion": "2.4.40.6",
+  "Link": "https://github.com/zh667/SurvivalCraftGenius",
+  "Author": "zh667",
+  "PackageName": "SurvivalcraftGenius",
+  "Dependencies": []
+}
