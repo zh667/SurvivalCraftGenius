@@ -35,7 +35,6 @@ src/SurvivalcraftGenius/
 - [x] ModLoader 入口可加载、日志可见
 - [x] 纯 C# agent 层的测试基线(Linux `dotnet test` 全绿)
 
-实机验证清单(M1 收尾):召唤出现人形 NPC / G 键对话 / scan 汇报 / goto 走到 / dig 真挖出掉落 / follow 跟随 / 设置保存生效。发现问题记 issue 修复。
 
 ### M1 — MVP:会听话的守护灵(代码已完成,待 Windows 实机验证)
 
@@ -50,6 +49,8 @@ src/SurvivalcraftGenius/
 - [x] 寻路先用引擎自带 `ComponentPathfinding`(平地/缓坡够用,复杂地形允许失败并汇报)
 - [x] 失败回报:每个工具超时/失败原因回传 LLM,让它重试或换策略
 - [x] 设置界面:后端地址、密钥、模型名(密钥仅存本机 data:/SurvivalcraftGenius)
+
+实机验证清单(M1 收尾):召唤出现人形 NPC / G 键对话 / scan 汇报 / goto 走到 / dig 真挖出掉落 / follow 跟随 / 设置保存生效。发现问题记 issue 修复。
 
 ### M2 — 干真活
 
