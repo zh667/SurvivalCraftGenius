@@ -57,6 +57,12 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
                         $"(searched down to {SearchDepth} blocks below me)";
                 }
 
+                var toolCheck = CheckToolEfficiency(brain, found.Value);
+                if (toolCheck is not null)
+                {
+                    return toolCheck;
+                }
+
                 _oreCell = found.Value;
                 _navigator = new TunnelNavigator(
                     new Vector3(_oreCell.X + 0.5f, _oreCell.Y + 0.5f, _oreCell.Z + 0.5f),
@@ -165,13 +171,20 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
         }
     }
 
+    /// <summary>
+    /// If both natural ore blocks (name contains 矿/ore) and crafted blocks
+    /// match the query, only the ore ones count — "煤" must never target the
+    /// player's decorative coal blocks at home.
+    /// </summary>
     private Point3? FindNearestMatch(ComponentGeniusBrain brain)
     {
         var terrain = brain.SubsystemTerrain.Terrain;
         var center = Terrain.ToCell(brain.Creature.ComponentBody.Position);
-        Point3? best = null;
-        var bestDistanceSquared = float.MaxValue;
-        var matchingContents = new Dictionary<int, bool>();
+        Point3? bestAny = null;
+        Point3? bestOre = null;
+        var bestAnyDistance = float.MaxValue;
+        var bestOreDistance = float.MaxValue;
+        var matchKinds = new Dictionary<int, int>();
         for (var dx = -SearchRadius; dx <= SearchRadius; dx++)
         {
             for (var dz = -SearchRadius; dz <= SearchRadius; dz++)
@@ -196,32 +209,61 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
                         continue;
                     }
 
-                    if (!matchingContents.TryGetValue(contents, out var matches))
+                    if (!matchKinds.TryGetValue(contents, out var kind))
                     {
                         var block = BlocksManager.Blocks[contents];
                         var displayName = block.GetDisplayName(brain.SubsystemTerrain, value);
                         var craftingId = block.GetCraftingId(value) ?? "";
-                        matches = displayName.Contains(query, StringComparison.OrdinalIgnoreCase)
+                        var matches = displayName.Contains(query, StringComparison.OrdinalIgnoreCase)
                             || craftingId.Contains(query, StringComparison.OrdinalIgnoreCase);
-                        matchingContents[contents] = matches;
+                        var isOre = displayName.Contains('矿')
+                            || craftingId.Contains("ore", StringComparison.OrdinalIgnoreCase);
+                        kind = matches ? (isOre ? 2 : 1) : 0;
+                        matchKinds[contents] = kind;
                     }
 
-                    if (!matches)
+                    if (kind == 0)
                     {
                         continue;
                     }
 
                     var distanceSquared = dx * dx + dy * dy * 4f + dz * dz;
-                    if (distanceSquared < bestDistanceSquared)
+                    if (distanceSquared < bestAnyDistance)
                     {
-                        bestDistanceSquared = distanceSquared;
-                        best = new Point3(center.X + dx, y, center.Z + dz);
+                        bestAnyDistance = distanceSquared;
+                        bestAny = new Point3(center.X + dx, y, center.Z + dz);
+                    }
+
+                    if (kind == 2 && distanceSquared < bestOreDistance)
+                    {
+                        bestOreDistance = distanceSquared;
+                        bestOre = new Point3(center.X + dx, y, center.Z + dz);
                     }
                 }
             }
         }
 
-        return best;
+        return bestOre ?? bestAny;
+    }
+
+    /// <summary>
+    /// Refuses to grind for minutes with bare hands: if the best tool still
+    /// needs more than ~6s per block, ask for/craft a proper pick first.
+    /// </summary>
+    private static string? CheckToolEfficiency(ComponentGeniusBrain brain, Point3 cell)
+    {
+        var cellValue = brain.SubsystemTerrain.Terrain.GetCellValue(cell.X, cell.Y, cell.Z);
+        TimedDigger.EquipBestToolFor(brain, cellValue);
+        var digTime = brain.Miner.CalculateDigTime(
+            cellValue, Terrain.ExtractContents(brain.Miner.ActiveBlockValue));
+        if (digTime <= 6f)
+        {
+            return null;
+        }
+
+        var name = GeniusInventoryOps.ItemName(brain, cellValue);
+        return $"error: digging '{name}' with what I have would take ~{digTime:F0}s per block — " +
+            "give me a proper pick or let me craft one first (craft 'pick'), then retry";
     }
 
     private string Summary()

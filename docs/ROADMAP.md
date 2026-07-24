@@ -80,6 +80,8 @@ src/SurvivalcraftGenius/
 
 ### M4 — 记忆与生态
 
+- [x] 旅行地图(SCTM)集成:`list_waypoints` 反射读取路标(无硬依赖,未装不受影响)、
+      `teleport` 自由传送到路标或坐标(v0.4.0)
 - [ ] 每世界持久记忆:对话摘要、已知地标(家、矿点、熔炉位置),按种子隔离存储
 - [ ] Markdown 技能库:玩家用纯文本教它新流程(参考 Numen"调教"/Voyager 技能库)
 - [ ] 联机(netmod)支持:多人世界中归属、权限与同步

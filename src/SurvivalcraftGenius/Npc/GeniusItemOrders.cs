@@ -10,7 +10,7 @@ namespace SurvivalcraftGenius.Npc;
 public sealed class CollectItemsOrder : GeniusOrder
 {
     private const float SearchRange = 14f;
-    private const float PickupRange = 1.7f;
+    private const float PickupRange = 2.5f;
 
     private readonly Dictionary<string, int> _collected = [];
     private double _nextPathUpdateTime;

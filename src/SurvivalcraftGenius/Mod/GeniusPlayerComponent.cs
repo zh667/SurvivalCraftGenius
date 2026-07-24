@@ -399,6 +399,57 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                     (string?)arguments["resource_name"] ?? "",
                     (int?)arguments["count"] ?? 1);
 
+            case "list_waypoints":
+            {
+                var waypoints = TravelMapBridge.TryReadWaypoints(m_componentPlayer);
+                if (waypoints is null)
+                {
+                    return Task.FromResult("error: TravelMap mod is not installed (or has no data yet)");
+                }
+
+                if (waypoints.Count == 0)
+                {
+                    return Task.FromResult("no waypoints saved on the travel map yet");
+                }
+
+                var listed = waypoints.Select(waypoint =>
+                    $"{waypoint.Name} ({(int)waypoint.Position.X}, {(int)waypoint.Position.Y}, {(int)waypoint.Position.Z})");
+                return Task.FromResult("waypoints: " + string.Join("; ", listed));
+            }
+
+            case "teleport":
+            {
+                Vector3 destination;
+                var waypointName = (string?)arguments["waypoint_name"];
+                if (!string.IsNullOrWhiteSpace(waypointName))
+                {
+                    var waypoints = TravelMapBridge.TryReadWaypoints(m_componentPlayer);
+                    var match = waypoints?.FirstOrDefault(waypoint =>
+                        waypoint.Name.Contains(waypointName, StringComparison.OrdinalIgnoreCase));
+                    if (match is null)
+                    {
+                        return Task.FromResult($"error: no waypoint matching '{waypointName}'");
+                    }
+
+                    destination = match.Position;
+                }
+                else if (arguments["x"] is not null && arguments["y"] is not null && arguments["z"] is not null)
+                {
+                    var point = ReadPoint(arguments);
+                    destination = new Vector3(point.X + 0.5f, point.Y, point.Z + 0.5f);
+                }
+                else
+                {
+                    return Task.FromResult("error: give either waypoint_name or x/y/z");
+                }
+
+                brain.StopMoving();
+                brain.Creature.ComponentBody.Position = destination + new Vector3(0f, 0.5f, 0f);
+                return Task.FromResult(
+                    $"teleported to ({(int)destination.X}, {(int)destination.Y}, {(int)destination.Z})" +
+                    "; note: if this is far from the player the area may be unloaded — prefer teleporting near the player or a visited spot");
+            }
+
             case "dig_block":
             {
                 var order = new DigOrder(ReadPoint(arguments));

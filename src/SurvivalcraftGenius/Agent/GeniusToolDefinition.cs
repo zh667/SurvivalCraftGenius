@@ -139,6 +139,21 @@ public static class ToolCatalog
              "required":["target_name"]}
             """));
         registry.Register(new GeniusToolDefinition(
+            "list_waypoints",
+            "List the waypoints saved on the player's TravelMap mod (name + coordinates).",
+            NoParameters));
+        registry.Register(new GeniusToolDefinition(
+            "teleport",
+            "Instantly teleport yourself to a TravelMap waypoint (by name) or to coordinates. Prefer destinations near the player or previously visited areas.",
+            """
+            {"type":"object","properties":{
+              "waypoint_name":{"type":"string","description":"Waypoint name substring; takes priority over x/y/z."},
+              "x":{"type":"integer"},
+              "y":{"type":"integer"},
+              "z":{"type":"integer"}},
+             "required":[]}
+            """));
+        registry.Register(new GeniusToolDefinition(
             "put_into_chest",
             "Walk to the chest at the given coordinate and store your inventory items into it.",
             """

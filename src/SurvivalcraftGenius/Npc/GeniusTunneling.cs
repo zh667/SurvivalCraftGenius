@@ -114,19 +114,51 @@ public sealed class TunnelNavigator(Vector3 target, bool allowDigging, float arr
     private double _nextRepathProbeTime;
     private Vector3? _stepDestination;
     private double _stepDeadline;
+    private float _bestDistance = float.MaxValue;
+    private double _lastProgressTime;
 
     public string FailureReason { get; private set; } = "";
 
     public NavStatus Tick(ComponentGeniusBrain brain, float dt)
     {
         var myPosition = brain.Creature.ComponentBody.Position;
-        if (Vector3.Distance(myPosition, target) <= arriveDistance)
+        var distance = Vector3.Distance(myPosition, target);
+        if (distance <= arriveDistance)
         {
             brain.m_componentPathfinding.Stop();
             return NavStatus.Arrived;
         }
 
+        // Progress watchdog: the vanilla pathfinder can dither for a long time
+        // in enclosed spaces before admitting IsStuck. Any tick that fails to
+        // close in on the target for a while forces the tunneling fallback.
+        var now = brain.m_subsystemTime.GameTime;
+        if (_lastProgressTime == 0.0 || distance < _bestDistance - 0.3f)
+        {
+            _bestDistance = Math.Min(_bestDistance, distance);
+            _lastProgressTime = now;
+        }
+
+        if (!_tunneling && allowDigging && now - _lastProgressTime > 5.0)
+        {
+            StartTunneling(brain);
+            _lastProgressTime = now;
+        }
+        else if (_tunneling && now - _lastProgressTime > 35.0)
+        {
+            FailureReason = "I'm wedged and not making progress";
+            return NavStatus.Failed;
+        }
+
         return _tunneling ? TickTunnel(brain, dt, myPosition) : TickPathfinding(brain, myPosition);
+    }
+
+    private void StartTunneling(ComponentGeniusBrain brain)
+    {
+        brain.m_componentPathfinding.Stop();
+        _tunneling = true;
+        _pendingCells.Clear();
+        _stepDestination = null;
     }
 
     private NavStatus TickPathfinding(ComponentGeniusBrain brain, Vector3 myPosition)
@@ -139,10 +171,7 @@ public sealed class TunnelNavigator(Vector3 target, bool allowDigging, float arr
                 return NavStatus.Failed;
             }
 
-            brain.m_componentPathfinding.Stop();
-            _tunneling = true;
-            _pendingCells.Clear();
-            _stepDestination = null;
+            StartTunneling(brain);
             return NavStatus.Running;
         }
 

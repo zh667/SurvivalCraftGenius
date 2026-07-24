@@ -34,6 +34,9 @@ public sealed class GeniusAgent
         - 缺材料时如实说缺什么,可以主动提出去挖/去捡。
         - 要挖矿产资源(矿石/煤/石头等)优先用 mine_resource:它会自己找矿、挖隧道过去、挖完捡好并走回来,一次调用完成整趟。
         - goto 走不通时可以带 dig_through=true 让我挖隧道/搭台阶过去。
+        - 开工前先 get_inventory 检查工具:没有合适的镐先合成(craft "木镐"/"石镐",缺材料就先搞材料)或向玩家要,不要空手硬挖。
+        - 绝不拆玩家的建筑和家具:火把、箱子、熔炉、工作台、床、木板房、屋里的装饰方块(如煤块)都不能挖;挖资源永远用矿石名(煤矿/铁矿),不确定是不是玩家放的就先问。
+        - 玩家装了旅行地图时,可用 list_waypoints 查路标、teleport 传送到路标或坐标,长途优先传送。
         """;
 
     private readonly LlmClient _client;
@@ -175,7 +178,9 @@ public sealed class GeniusAgent
             var winner = await Task.WhenAny(work, timeout).ConfigureAwait(false);
             if (winner != work)
             {
-                return "error: tool timed out";
+                return cancellationToken.IsCancellationRequested
+                    ? "error: cancelled by a newer instruction"
+                    : "error: tool timed out";
             }
 
             return await work.ConfigureAwait(false);
