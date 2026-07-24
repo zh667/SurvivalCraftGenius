@@ -1,0 +1,46 @@
+<SurvivalCraftMap>
+  <Folder Name="Gameplay" Guid="d3d4b692-acc9-4128-9b99-a5acf1de1fbb">
+    <ComponentTemplate Name="GeniusPlayer" Guid="aeabfb76-032f-4faf-b33b-bab7bbb76fb7" InheritanceParent="b05700ed-7e4e-4679-98f5-b597f421496b">
+      <Parameter Name="Class" Guid="32cf7bde-ba49-4a87-be18-0b5a1e826e6a" Value="SurvivalcraftGenius.Mod.GeniusPlayerComponent" Type="string" />
+    </ComponentTemplate>
+    <ComponentTemplate Name="GeniusBrain" Guid="c170fe9a-b8f6-41e0-ba0f-3060dbb51782" InheritanceParent="b05700ed-7e4e-4679-98f5-b597f421496b">
+      <Parameter Name="Class" Guid="cf461f2f-b666-4c1a-a046-0d6b2ec5827f" Value="SurvivalcraftGenius.Npc.ComponentGeniusBrain" Type="string" />
+    </ComponentTemplate>
+  </Folder>
+  <EntityTemplate Name="Player" Guid="4be6c1c5-d65d-4537-8a8b-a391969e6dc2">
+    <MemberComponentTemplate Name="GeniusPlayer" Guid="5079b4b9-c3a9-4e44-95eb-f7b5dfd674f1" InheritanceParent="aeabfb76-032f-4faf-b33b-bab7bbb76fb7" />
+  </EntityTemplate>
+  <Folder Name="Animals" Guid="66a49cbb-cb12-4479-9b40-fbadd9db3425">
+    <EntityTemplate Name="GeniusNpc" Guid="75e4ab99-72b3-4656-8bb0-db411edb2d6a" InheritanceParent="e4275171-a39f-413f-8888-4c472868364d">
+      <MemberComponentTemplate Name="Creature" Guid="0cfb1d81-94e1-400e-ac01-94a3f7e57895">
+        <Parameter Name="DisplayName" Guid="f47f5b40-bc71-4e00-bd3a-327b2736fb66" Value="Genius" Type="string" />
+        <Parameter Name="Category" Guid="00476060-fcae-45fc-96ee-9ea681434334" Value="LandOther" Type="Game.CreatureCategory" />
+        <Parameter Name="ConstantSpawn" Guid="a56623e1-fb24-4f6b-8f35-861aab34a64e" Value="False" Type="bool" />
+        <Parameter Name="KillVerbs" Guid="1d4a79ab-4ccf-44c5-9c9e-cdf93ebbf7f2" Value="defeated" Type="string" />
+        <Parameter Name="Description" Guid="5cd75b48-86eb-46db-8129-a5218f5fdc33" Value="An AI companion spirit that listens, plans and works." Type="string" />
+      </MemberComponentTemplate>
+      <MemberComponentTemplate Name="Body" Guid="4597db7d-456f-482f-b550-df3732791fc2">
+        <Parameter Name="BoxSize" Guid="9f5799d4-bad4-4a89-b8e7-b1cdc634859f" Value="0.6,1.77,0.6" Type="Vector3" />
+        <Parameter Name="Mass" Guid="ed2f789f-00c1-4894-9ca0-d63732ee0f64" Value="80" Type="float" />
+      </MemberComponentTemplate>
+      <MemberComponentTemplate Name="Spawn" Guid="b636419c-cd28-4112-ae70-c1d42a93e4e4">
+        <Parameter Name="AutoDespawn" Guid="57871b61-0e2f-4b53-9ff6-5355bed3030e" Value="False" Type="bool" />
+      </MemberComponentTemplate>
+      <MemberComponentTemplate Name="Locomotion" Guid="b08bb0a0-7dd9-4524-a2bd-40b072465c96">
+        <Parameter Name="WalkSpeed" Guid="2519b83b-3296-4c08-88b6-6acde610aa15" Value="4.5" Type="float" />
+        <Parameter Name="TurnSpeed" Guid="e1775aeb-e63a-4f8b-a975-71ae16eaf7c2" Value="8" Type="float" />
+        <Parameter Name="JumpSpeed" Guid="a8c6a91f-0d72-44d2-9787-a44881b1e21b" Value="7" Type="float" />
+        <Parameter Name="LadderSpeed" Guid="e3f00e35-db31-4a86-a459-fcc515f436ac" Value="2" Type="float" />
+      </MemberComponentTemplate>
+      <MemberComponentTemplate Name="HumanModel" Guid="8e50441c-0ae9-4a97-b06f-ae6dbe526960" InheritanceParent="0566662e-bb24-45f9-84d8-f3c1e5d083df">
+        <Parameter Name="ModelName" Guid="f63a031b-fc4d-403f-8128-a244a3d2606a" Value="Models/HumanMale" Type="string" />
+        <Parameter Name="TextureOverride" Guid="f96e40bc-fde7-4684-98ae-560a83f1145e" Value="Textures/Creatures/HumanMale1" Type="string" />
+      </MemberComponentTemplate>
+      <MemberComponentTemplate Name="Miner" Guid="4e9da57d-0c99-4159-953e-8f85dc1b7b62" InheritanceParent="8acca888-ba39-464f-bcf5-6ae15e448c62">
+        <Parameter Name="AttackPower" Guid="0794af40-e1fa-4f15-9785-b85587ebef67" Value="2" Type="float" />
+      </MemberComponentTemplate>
+      <MemberComponentTemplate Name="Inventory" Guid="0e243d55-5ed9-46d8-93d2-f37b93dad8da" InheritanceParent="de5c0cb9-42d1-4ee4-b58f-bb9bb668b890" />
+      <MemberComponentTemplate Name="GeniusBrain" Guid="eeea54c2-9d33-4748-b629-7bc40236b1ae" InheritanceParent="c170fe9a-b8f6-41e0-ba0f-3060dbb51782" />
+    </EntityTemplate>
+  </Folder>
+</SurvivalCraftMap>

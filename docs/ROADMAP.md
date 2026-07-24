@@ -35,19 +35,21 @@ src/SurvivalcraftGenius/
 - [x] ModLoader 入口可加载、日志可见
 - [x] 纯 C# agent 层的测试基线(Linux `dotnet test` 全绿)
 
-### M1 — MVP:会听话的守护灵
+实机验证清单(M1 收尾):召唤出现人形 NPC / G 键对话 / scan 汇报 / goto 走到 / dig 真挖出掉落 / follow 跟随 / 设置保存生效。发现问题记 issue 修复。
+
+### M1 — MVP:会听话的守护灵(代码已完成,待 Windows 实机验证)
 
 **验收场景**:游戏内召唤 Genius → 聊天说"过来,看看周围有什么,把你脚下的草挖了" →
 它走过来、汇报周围方块/生物、挖掉目标块,全程聊天窗可见它的"想法"。
 
-- [ ] 召唤/收回:物品或命令生成 NPC 实体,退出存档时正确持久化或消失
-- [ ] 聊天 UI:玩家输入 → agent 循环;NPC 发言/行动结果回显聊天窗
-- [ ] LLM 客户端:OpenAI 兼容 chat/completions + tool-calling,可配 baseURL/key/model
-- [ ] 工具 v1:`say` / `scan_surroundings` / `goto(x,y,z)` / `follow_player` /
-      `dig_block(x,y,z)` / `place_block(x,y,z,item)` / `get_inventory`
-- [ ] 寻路先用引擎自带 `ComponentPathfinding`(平地/缓坡够用,复杂地形允许失败并汇报)
-- [ ] 失败回报:每个工具超时/失败原因回传 LLM,让它重试或换策略
-- [ ] 设置界面:后端地址、密钥、模型名、系统提示词
+- [x] 召唤/收回:聊天窗按钮生成/收回 NPC 实体(继承 LandAnimal 模板 + 人形模型,AutoDespawn 关闭)
+- [x] 聊天 UI:按 G 打开对话窗;玩家输入 → agent 循环;发言/工具动态回显
+- [x] LLM 客户端:OpenAI 兼容 chat/completions + tool-calling,可配 baseURL/key/model
+- [x] 工具 v1:`say` / `scan_surroundings` / `goto(x,y,z)` / `follow_player` /
+      `dig_block(x,y,z)` / `place_block(x,y,z,slot_index)` / `get_inventory`
+- [x] 寻路先用引擎自带 `ComponentPathfinding`(平地/缓坡够用,复杂地形允许失败并汇报)
+- [x] 失败回报:每个工具超时/失败原因回传 LLM,让它重试或换策略
+- [x] 设置界面:后端地址、密钥、模型名(密钥仅存本机 data:/SurvivalcraftGenius)
 
 ### M2 — 干真活
 
