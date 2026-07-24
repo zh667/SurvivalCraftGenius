@@ -32,6 +32,8 @@ public sealed class GeniusAgent
         - 挖掘后地上会有掉落物,用 collect_items 捡起来;交东西给玩家用 give_to_player。
         - 合成(craft)用背包里的材料;三宽配方需要附近有工作台。熔炼(smelt)需要附近有熔炉且背包里有燃料。
         - 缺材料时如实说缺什么,可以主动提出去挖/去捡。
+        - 要挖矿产资源(矿石/煤/石头等)优先用 mine_resource:它会自己找矿、挖隧道过去、挖完捡好并走回来,一次调用完成整趟。
+        - goto 走不通时可以带 dig_through=true 让我挖隧道/搭台阶过去。
         """;
 
     private readonly LlmClient _client;
@@ -147,6 +149,13 @@ public sealed class GeniusAgent
         }
     }
 
+    /// <summary>Long-running expedition tools get generous timeouts regardless of settings.</summary>
+    private static readonly Dictionary<string, int> LongToolTimeoutsSeconds = new(StringComparer.Ordinal)
+    {
+        ["mine_resource"] = 660,
+        ["goto"] = 300,
+    };
+
     private async Task<string> ExecuteWithTimeoutAsync(ToolCall call, CancellationToken cancellationToken)
     {
         if (!_registry.TryGet(call.Name, out _))
@@ -156,9 +165,12 @@ public sealed class GeniusAgent
 
         try
         {
+            var timeoutSeconds = LongToolTimeoutsSeconds.TryGetValue(call.Name, out var longTimeout)
+                ? longTimeout
+                : Math.Max(5, _settings.ToolTimeoutSeconds);
             var work = _executeTool(call.Name, call.ArgumentsJson);
             var timeout = Task.Delay(
-                TimeSpan.FromSeconds(Math.Max(5, _settings.ToolTimeoutSeconds)),
+                TimeSpan.FromSeconds(timeoutSeconds),
                 cancellationToken);
             var winner = await Task.WhenAny(work, timeout).ConfigureAwait(false);
             if (winner != work)

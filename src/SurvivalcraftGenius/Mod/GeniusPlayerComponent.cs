@@ -327,6 +327,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             return Task.FromResult($"error: bad tool arguments ({exception.Message})");
         }
 
+        Log.Information($"[Genius] tool {name} {Truncate(argumentsJson, 160)}");
         var completion = new TaskCompletionSource<Task<string>>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         _mainThreadQueue.Enqueue(() =>
@@ -340,7 +341,14 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 completion.TrySetResult(Task.FromResult($"error: {exception.Message}"));
             }
         });
-        return completion.Task.Unwrap();
+        return completion.Task.Unwrap().ContinueWith(task =>
+        {
+            var result = task.IsFaulted
+                ? $"error: {task.Exception?.GetBaseException().Message}"
+                : task.Result;
+            Log.Information($"[Genius] tool {name} -> {Truncate(result, 240)}");
+            return result;
+        });
     }
 
     private Task<string> ExecuteToolOnMainThread(string name, JObject arguments)
@@ -379,7 +387,18 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 return Task.FromResult("now following the player");
             case "goto":
             {
-                var order = new GotoOrder(ReadPoint(arguments));
+                var order = new GotoOrder(
+                    ReadPoint(arguments),
+                    (bool?)arguments["dig_through"] ?? false);
+                brain.StartOrder(order);
+                return order.Completion;
+            }
+
+            case "mine_resource":
+            {
+                var order = new MineResourceOrder(
+                    (string?)arguments["resource_name"] ?? "",
+                    (int?)arguments["count"] ?? 1);
                 brain.StartOrder(order);
                 return order.Completion;
             }
@@ -522,21 +541,38 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
 
     private ComponentGeniusBrain? FindBrain()
     {
+        ComponentGeniusBrain? nearest = null;
+        var nearestDistance = float.MaxValue;
+        var count = 0;
         foreach (var body in m_subsystemBodies.Bodies)
         {
             var brain = body.Entity.FindComponent<ComponentGeniusBrain>();
-            if (brain is not null
-                && body.Entity.FindComponent<ComponentSpawn>() is not { IsDespawning: true })
+            if (brain is null
+                || body.Entity.FindComponent<ComponentSpawn>() is { IsDespawning: true })
             {
-                return brain;
+                continue;
+            }
+
+            count++;
+            var distance = Vector3.Distance(body.Position, m_componentPlayer.ComponentBody.Position);
+            if (distance < nearestDistance)
+            {
+                nearest = brain;
+                nearestDistance = distance;
             }
         }
 
-        return null;
+        if (count > 1)
+        {
+            Log.Warning($"[Genius] {count} NPC brains alive; using the nearest.");
+        }
+
+        return nearest;
     }
 
     private void AppendLog(GeniusChatRole role, string text)
     {
+        Log.Information($"[Genius] chat/{role}: {Truncate(text, 200)}");
         _chatLog.Add(new GeniusChatLine(role, text));
         if (_chatLog.Count > MaxLogLines)
         {

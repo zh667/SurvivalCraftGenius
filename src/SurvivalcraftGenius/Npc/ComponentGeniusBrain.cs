@@ -25,6 +25,7 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     private GeniusOrder? _order;
     private ComponentBody? _followTarget;
     private double _nextFollowUpdateTime;
+    private float _suppressedTime;
 
     public UpdateOrder UpdateOrder => UpdateOrder.Default;
 
@@ -84,9 +85,21 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         {
             if (!IsActive)
             {
+                // A higher-priority behavior (fleeing at low health, importance
+                // 300) is overriding us. Fail fast instead of hanging the tool
+                // call until its timeout.
+                _suppressedTime += dt;
+                if (_suppressedTime > 8f)
+                {
+                    _suppressedTime = 0f;
+                    _order.Finish("error: I'm in danger (fleeing) and cannot work right now");
+                    _order = null;
+                }
+
                 return;
             }
 
+            _suppressedTime = 0f;
             var finished = _order.Tick(this, dt);
             if (finished)
             {
@@ -157,9 +170,32 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         Engine.Log.Information(
             $"[Genius] NPC entity removed from project (pos={m_componentCreature.ComponentBody.Position}, " +
             $"health={m_componentCreature.ComponentHealth.Health}).");
+        SpillInventoryIfDead();
         _order?.Finish("error: the companion was removed from the world");
         _order = null;
         base.OnEntityRemoved();
+    }
+
+    /// <summary>On death, drop everything carried so the player can recover it.</summary>
+    private void SpillInventoryIfDead()
+    {
+        if (m_componentCreature.ComponentHealth.Health > 0f
+            || m_componentMiner.Inventory is not { } inventory)
+        {
+            return;
+        }
+
+        var position = m_componentCreature.ComponentBody.Position + new Vector3(0f, 0.5f, 0f);
+        for (var slot = 0; slot < inventory.SlotsCount; slot++)
+        {
+            var value = inventory.GetSlotValue(slot);
+            var count = inventory.GetSlotCount(slot);
+            if (value != 0 && count > 0)
+            {
+                m_subsystemPickables.AddPickable(value, count, position, null, null);
+                inventory.RemoveSlotItems(slot, count);
+            }
+        }
     }
 }
 
@@ -246,38 +282,33 @@ public abstract class GeniusOrder
     }
 }
 
-public sealed class GotoOrder(Point3 target) : GeniusOrder
+public sealed class GotoOrder(Point3 target, bool digThrough = false) : GeniusOrder
 {
+    private TunnelNavigator? _navigator;
+
     private Vector3 Destination => new(target.X + 0.5f, target.Y, target.Z + 0.5f);
 
-    protected override float TimeoutSeconds => 90f;
+    protected override float TimeoutSeconds => digThrough ? 240f : 90f;
 
     protected override void OnStart(ComponentGeniusBrain brain)
     {
-        WalkTowards(brain, Destination, 1.5f);
+        _navigator = new TunnelNavigator(Destination, digThrough, arriveDistance: 2.0f);
     }
 
     protected override string? OnTick(ComponentGeniusBrain brain, float dt)
     {
-        var position = brain.Creature.ComponentBody.Position;
-        var distance = Vector3.Distance(position, Destination);
-        if (distance <= 2.0f)
+        switch (_navigator!.Tick(brain, dt))
         {
-            return $"arrived at ({target.X}, {target.Y}, {target.Z})";
+            case NavStatus.Arrived:
+                return $"arrived at ({target.X}, {target.Y}, {target.Z})";
+            case NavStatus.Failed:
+                var position = brain.Creature.ComponentBody.Position;
+                return $"error: {_navigator.FailureReason} — I'm at " +
+                    $"({(int)position.X}, {(int)position.Y}, {(int)position.Z})" +
+                    (digThrough ? "" : "; retry with dig_through=true to tunnel there");
+            default:
+                return null;
         }
-
-        if (brain.m_componentPathfinding.IsStuck)
-        {
-            return $"error: stuck at ({(int)position.X}, {(int)position.Y}, {(int)position.Z}), " +
-                "cannot reach the destination — terrain may be blocked";
-        }
-
-        if (!brain.m_componentPathfinding.Destination.HasValue)
-        {
-            WalkTowards(brain, Destination, 1.5f);
-        }
-
-        return null;
     }
 }
 

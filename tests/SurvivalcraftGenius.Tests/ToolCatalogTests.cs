@@ -15,7 +15,7 @@ public class ToolCatalogTests
         [
             "say", "scan_surroundings", "goto", "follow_player", "dig_block",
             "place_block", "get_inventory", "collect_items", "take_from_chest",
-            "put_into_chest", "craft", "smelt", "give_to_player", "equip_tool", "attack",
+            "put_into_chest", "craft", "smelt", "give_to_player", "equip_tool", "attack", "mine_resource",
         ];
         Assert.Equal(expected.OrderBy(n => n), names.OrderBy(n => n));
     }

@@ -38,8 +38,24 @@ public static class ToolCatalog
             NoParameters));
         registry.Register(new GeniusToolDefinition(
             "goto",
-            "Walk to the given block coordinate. Completes when arrived; fails if the terrain is impassable.",
-            PointParameters));
+            "Walk to the given block coordinate. With dig_through=true I will tunnel/build steps through terrain to get there.",
+            """
+            {"type":"object","properties":{
+              "x":{"type":"integer"},
+              "y":{"type":"integer"},
+              "z":{"type":"integer"},
+              "dig_through":{"type":"boolean","description":"Allow digging tunnels and placing step blocks to reach the target. Default false."}},
+             "required":["x","y","z"]}
+            """));
+        registry.Register(new GeniusToolDefinition(
+            "mine_resource",
+            "Autonomous mining trip: search for blocks matching the name within ~24m (down to 28 below), tunnel to them, dig them, collect the drops, repeat until count is reached, then walk back. May take minutes; returns a final summary.",
+            """
+            {"type":"object","properties":{
+              "resource_name":{"type":"string","description":"Block name substring, e.g. 铁/iron/煤/coal."},
+              "count":{"type":"integer","description":"How many blocks to mine; default 1."}},
+             "required":["resource_name"]}
+            """));
         registry.Register(new GeniusToolDefinition(
             "follow_player",
             "Start following the player continuously. Stays active until another movement tool is used.",
