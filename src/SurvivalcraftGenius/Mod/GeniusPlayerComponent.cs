@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Engine;
 using Game;
+using Game.NetWork;
 using GameEntitySystem;
 using Newtonsoft.Json.Linq;
 using SurvivalcraftGenius.Agent;
@@ -30,7 +31,9 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     private const int MaxLogLines = 200;
 
     private SubsystemBodies m_subsystemBodies = null!;
+    private SubsystemTerrain m_subsystemTerrain = null!;
     private ComponentPlayer m_componentPlayer = null!;
+    private WorkType _workType;
 
     private readonly ConcurrentQueue<Action> _mainThreadQueue = new();
     private readonly List<GeniusChatLine> _chatLog = [];
@@ -124,6 +127,13 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
 
     public void SummonNpc()
     {
+        if (_workType == WorkType.Client)
+        {
+            AppendLog(GeniusChatRole.Info,
+                "当前是联机客户端模式:实体必须由服务端生成,暂不支持召唤(联机支持在路线图 M4)。请在本地单机世界使用。");
+            return;
+        }
+
         if (FindBrain() is not null)
         {
             AppendLog(GeniusChatRole.Info, "Genius 已经在这个世界里了。");
@@ -135,12 +145,13 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             var entity = DatabaseManager.CreateEntity(Project, NpcTemplateName, throwIfNotFound: true);
             var body = entity.FindComponent<ComponentBody>(throwOnError: true)!;
             var playerBody = m_componentPlayer.ComponentBody;
-            var forward = playerBody.Rotation.GetForwardVector();
-            var spawnPosition = playerBody.Position - 2f * forward + new Vector3(0f, 1f, 0f);
-            body!.Position = spawnPosition;
+            var spawnPosition = FindSpawnPositionNear(playerBody);
+            body.Position = spawnPosition;
             body.Rotation = playerBody.Rotation;
             entity.FindComponent<ComponentSpawn>(throwOnError: true)!.SpawnDuration = 0.5f;
             Project.AddEntity(entity);
+            Log.Information(
+                $"[Genius] NPC spawned at {spawnPosition} (player at {playerBody.Position}, workType={_workType}).");
             AppendLog(GeniusChatRole.Info, "Genius 已召唤。按 G 打开对话,直接下指令吧。");
         }
         catch (Exception exception)
@@ -148,6 +159,33 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             AppendLog(GeniusChatRole.Info, $"召唤失败:{exception.Message}");
             Log.Error($"[Genius] Summon failed: {exception}");
         }
+    }
+
+    /// <summary>
+    /// Prefers a spot in front of the player with two air cells; falls back to
+    /// the player's own position (bodies push apart) so we never spawn in rock.
+    /// </summary>
+    private Vector3 FindSpawnPositionNear(ComponentBody playerBody)
+    {
+        var forward = playerBody.Rotation.GetForwardVector();
+        foreach (var distance in new[] { 1.8f, -1.8f })
+        {
+            var candidate = playerBody.Position + distance * forward;
+            var cell = Terrain.ToCell(candidate);
+            var blocked = false;
+            for (var dy = 0; dy < 2 && !blocked; dy++)
+            {
+                var value = m_subsystemTerrain.Terrain.GetCellValue(cell.X, cell.Y + dy, cell.Z);
+                blocked = BlocksManager.Blocks[Terrain.ExtractContents(value)].IsCollidable;
+            }
+
+            if (!blocked)
+            {
+                return candidate;
+            }
+        }
+
+        return playerBody.Position;
     }
 
     public void DismissNpc()
@@ -175,9 +213,12 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     public override void Load(ValuesDictionary valuesDictionary, IdToEntityMap idToEntityMap)
     {
         m_subsystemBodies = Project.FindSubsystem<SubsystemBodies>(throwOnError: true);
+        m_subsystemTerrain = Project.FindSubsystem<SubsystemTerrain>(throwOnError: true);
         m_componentPlayer = Entity.FindComponent<ComponentPlayer>(throwOnError: true)!;
+        _workType = CommonLib.WorkType;
         _settingsStore = new GeniusSettingsStore(Storage.GetSystemPath("data:/SurvivalcraftGenius"));
         _settings = _settingsStore.Load();
+        Log.Information($"[Genius] Player component loaded (workType={_workType}).");
     }
 
     public override void OnEntityRemoved()
@@ -345,7 +386,8 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         foreach (var body in m_subsystemBodies.Bodies)
         {
             var brain = body.Entity.FindComponent<ComponentGeniusBrain>();
-            if (brain is not null && !body.Entity.FindComponent<ComponentSpawn>()!.IsDespawning)
+            if (brain is not null
+                && body.Entity.FindComponent<ComponentSpawn>() is not { IsDespawning: true })
             {
                 return brain;
             }

@@ -120,6 +120,8 @@ public sealed class GeniusSettingsDialog : Dialog
         {
             Close();
         }
+
+        Input.Clear();
     }
 
     private void Close()

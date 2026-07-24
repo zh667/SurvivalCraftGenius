@@ -174,6 +174,11 @@ public sealed class GeniusChatDialog : Dialog
         {
             Close();
         }
+
+        // Swallow the rest of this frame's input so HUD widgets that poll the
+        // keyboard directly (e.g. the multiplayer chat box on Enter) stay shut
+        // while this dialog is open. Our own widgets updated before this call.
+        Input.Clear();
     }
 
     private void Send()

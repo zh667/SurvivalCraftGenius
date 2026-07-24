@@ -137,8 +137,18 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         m_componentMiner = Entity.FindComponent<ComponentMiner>(throwOnError: true)!;
     }
 
+    public override void OnEntityAdded()
+    {
+        Engine.Log.Information(
+            $"[Genius] NPC entity added to project at {m_componentCreature.ComponentBody.Position}.");
+        base.OnEntityAdded();
+    }
+
     public override void OnEntityRemoved()
     {
+        Engine.Log.Information(
+            $"[Genius] NPC entity removed from project (pos={m_componentCreature.ComponentBody.Position}, " +
+            $"health={m_componentCreature.ComponentHealth.Health}).");
         _order?.Finish("error: the companion was removed from the world");
         _order = null;
         base.OnEntityRemoved();
