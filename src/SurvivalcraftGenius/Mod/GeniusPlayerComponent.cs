@@ -39,6 +39,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     private readonly List<GeniusChatLine> _chatLog = [];
     private readonly CancellationTokenSource _lifetime = new();
     private GeniusSettingsStore _settingsStore = null!;
+    private GeniusKnowledgeStore _knowledgeStore = null!;
     private GeniusSettings _settings = null!;
     private LlmClient? _llmClient;
     private GeniusAgent? _agent;
@@ -236,6 +237,9 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         _workType = CommonLib.WorkType;
         _settingsStore = new GeniusSettingsStore(Storage.GetSystemPath("data:/SurvivalcraftGenius"));
         _settings = _settingsStore.Load();
+        _knowledgeStore = new GeniusKnowledgeStore(
+            Storage.GetSystemPath("data:/SurvivalcraftGenius/knowledge"));
+        _knowledgeStore.EnsureStarter();
         Log.Information($"[Genius] Player component loaded (workType={_workType}).");
     }
 
@@ -382,6 +386,18 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             }
 
             return Task.FromResult("said");
+        }
+
+        // Knowledge tools work without the NPC being summoned.
+        switch (name)
+        {
+            case "query_recipes":
+                return Task.FromResult(GeniusKnowledge.QueryRecipes(
+                    m_subsystemTerrain, (string?)arguments["item_name"] ?? ""));
+            case "query_help":
+                return Task.FromResult(GeniusKnowledge.QueryHelp((string?)arguments["keyword"] ?? ""));
+            case "read_knowledge":
+                return Task.FromResult(_knowledgeStore.Read((string?)arguments["topic"]));
         }
 
         var brain = FindBrain();

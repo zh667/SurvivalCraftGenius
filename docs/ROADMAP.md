@@ -83,7 +83,8 @@ src/SurvivalcraftGenius/
 - [x] 旅行地图(SCTM)集成:`list_waypoints` 反射读取路标(无硬依赖,未装不受影响)、
       `teleport` 自由传送到路标或坐标(v0.4.0)
 - [ ] 每世界持久记忆:对话摘要、已知地标(家、矿点、熔炉位置),按种子隔离存储
-- [ ] Markdown 技能库:玩家用纯文本教它新流程(参考 Numen"调教"/Voyager 技能库)
+- [x] 知识体系(v0.5.0):`query_recipes` 查游戏真实配方(含模组)、`query_help` 搜游戏内帮助页、
+      `read_knowledge` 读本地攻略库(data:/SurvivalcraftGenius/knowledge,玩家可放 .md 攻略,Numen"调教"式)
 - [ ] 联机(netmod)支持:多人世界中归属、权限与同步
 - [ ] 多语言(沿用 SCTM 的 Lang 资源体系)
 

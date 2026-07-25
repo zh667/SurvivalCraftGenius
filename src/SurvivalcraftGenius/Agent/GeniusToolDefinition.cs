@@ -139,6 +139,30 @@ public static class ToolCatalog
              "required":["target_name"]}
             """));
         registry.Register(new GeniusToolDefinition(
+            "query_recipes",
+            "Look up REAL crafting/smelting recipes in this game (includes mods). Always use this before crafting anything you are not sure about — this game's recipes differ from Minecraft.",
+            """
+            {"type":"object","properties":{
+              "item_name":{"type":"string","description":"Item name or keyword; matches results and ingredients."}},
+             "required":["item_name"]}
+            """));
+        registry.Register(new GeniusToolDefinition(
+            "query_help",
+            "Search the game's built-in help pages for mechanics (hunting, farming, weather, combat...). Empty keyword lists all topics.",
+            """
+            {"type":"object","properties":{
+              "keyword":{"type":"string"}},
+             "required":[]}
+            """));
+        registry.Register(new GeniusToolDefinition(
+            "read_knowledge",
+            "Read the local knowledge folder (player-curated tips and guides). No topic lists the files; with a topic returns the matching file.",
+            """
+            {"type":"object","properties":{
+              "topic":{"type":"string"}},
+             "required":[]}
+            """));
+        registry.Register(new GeniusToolDefinition(
             "list_waypoints",
             "List the waypoints saved on the player's TravelMap mod (name + coordinates).",
             NoParameters));
