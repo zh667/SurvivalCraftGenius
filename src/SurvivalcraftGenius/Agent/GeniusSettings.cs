@@ -17,8 +17,8 @@ public sealed class GeniusSettings
     /// <summary>Optional extra text appended to the built-in system prompt.</summary>
     public string SystemPromptExtra { get; set; } = "";
 
-    /// <summary>Upper bound of LLM round-trips per user message.</summary>
-    public int MaxToolSteps { get; set; } = 8;
+    /// <summary>Tool calls allowed per budget round (auto-extended up to 2x).</summary>
+    public int MaxToolSteps { get; set; } = 32;
 
     public int RequestTimeoutSeconds { get; set; } = 90;
 

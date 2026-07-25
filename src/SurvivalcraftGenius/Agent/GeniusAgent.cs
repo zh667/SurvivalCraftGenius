@@ -6,6 +6,7 @@ public enum AgentEventKind
     ToolCallStarted,
     ToolCallFinished,
     TurnFinished,
+    Progress,
     Error,
 }
 
@@ -111,7 +112,12 @@ public sealed class GeniusAgent
         try
         {
             AppendAndTrim(ChatMessage.User(userText));
-            for (var step = 0; step < Math.Max(1, _settings.MaxToolSteps); step++)
+            var stepsThisRound = 0;
+            var autoContinues = 0;
+            var maxSteps = Math.Max(8, _settings.MaxToolSteps);
+            string? lastSignature = null;
+            var repeatCount = 0;
+            while (true)
             {
                 var response = await _client
                     .CompleteAsync(_history, _registry.Tools, cancellationToken)
@@ -130,16 +136,56 @@ public sealed class GeniusAgent
                 AppendAndTrim(ChatMessage.Assistant(response.Content, response.ToolCalls));
                 foreach (var call in response.ToolCalls)
                 {
+                    stepsThisRound++;
+                    // Loop breaker: a verbatim-identical call repeated over and
+                    // over gets refused instead of burning the budget.
+                    var signature = call.Name + "\n" + call.ArgumentsJson;
+                    if (signature == lastSignature)
+                    {
+                        repeatCount++;
+                    }
+                    else
+                    {
+                        repeatCount = 0;
+                        lastSignature = signature;
+                    }
+
+                    if (repeatCount >= 3)
+                    {
+                        AppendAndTrim(ChatMessage.ToolResult(
+                            call.Id,
+                            "error: this exact call was repeated 4 times in a row — the approach is not working, change strategy or report to the player"));
+                        continue;
+                    }
+
                     _onEvent(new AgentEvent(AgentEventKind.ToolCallStarted, call.ArgumentsJson, call.Name));
                     var result = await ExecuteWithTimeoutAsync(call, cancellationToken).ConfigureAwait(false);
                     _onEvent(new AgentEvent(AgentEventKind.ToolCallFinished, result, call.Name));
                     AppendAndTrim(ChatMessage.ToolResult(call.Id, result));
                 }
-            }
 
-            AppendAndTrim(ChatMessage.User(
-                "(system: tool step budget exhausted this turn — summarize progress to the player via say next time)"));
-            _onEvent(new AgentEvent(AgentEventKind.Error, "本回合工具步数用完,已停下。"));
+                if (stepsThisRound < maxSteps)
+                {
+                    continue;
+                }
+
+                // Budget exhausted: extend automatically instead of freezing
+                // mid-task and waiting for the player to type 继续.
+                if (autoContinues < 2)
+                {
+                    autoContinues++;
+                    stepsThisRound = 0;
+                    AppendAndTrim(ChatMessage.User(
+                        "(system: 预算已自动续期,继续完成当前任务;若已完成或需要玩家决定,用 say 汇报后停止)"));
+                    _onEvent(new AgentEvent(AgentEventKind.Progress, $"步数预算用完,自动续期(第 {autoContinues} 次)…"));
+                    continue;
+                }
+
+                AppendAndTrim(ChatMessage.User(
+                    "(system: tool step budget fully exhausted — summarize progress to the player via say next time)"));
+                _onEvent(new AgentEvent(AgentEventKind.Error, "多次续期后步数仍用完,已停下;说「继续」可接着做。"));
+                return;
+            }
         }
         catch (OperationCanceledException)
         {

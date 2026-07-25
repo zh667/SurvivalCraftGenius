@@ -16,7 +16,16 @@ public sealed class GeniusSettingsStore(string directory)
         {
             if (File.Exists(SettingsPath))
             {
-                return GeniusSettings.FromJson(File.ReadAllText(SettingsPath));
+                var settings = GeniusSettings.FromJson(File.ReadAllText(SettingsPath));
+                // Migrate configs written when the default budget was 8: too
+                // small in practice (tasks froze mid-way waiting for 继续).
+                if (settings.MaxToolSteps < 24)
+                {
+                    settings.MaxToolSteps = 32;
+                    Save(settings);
+                }
+
+                return settings;
             }
 
             var defaults = new GeniusSettings();

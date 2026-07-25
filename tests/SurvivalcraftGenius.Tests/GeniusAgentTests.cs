@@ -119,3 +119,65 @@ public class GeniusAgentTests
         Assert.True(agent.TryBeginTurn());
     }
 }
+
+public class GeniusAgentLoopTests
+{
+    private sealed class RepeatingHandler : System.Net.Http.HttpMessageHandler
+    {
+        private const string SameToolCall = """
+            {"choices":[{"message":{"content":null,"tool_calls":[
+              {"id":"c1","type":"function","function":{"name":"scan_surroundings","arguments":"{}"}}]}}]}
+            """;
+
+        public int Requests { get; private set; }
+
+        protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(
+            System.Net.Http.HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests++;
+            return Task.FromResult(new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new System.Net.Http.StringContent(
+                    SameToolCall, System.Text.Encoding.UTF8, "application/json"),
+            });
+        }
+    }
+
+    [Fact]
+    public async Task IdenticalCallLoop_IsBrokenAndTurnTerminates()
+    {
+        var handler = new RepeatingHandler();
+        var settings = new SurvivalcraftGenius.Agent.GeniusSettings
+        {
+            ApiBaseUrl = "http://localhost/v1",
+            ApiKey = "k",
+            Model = "m",
+            MaxToolSteps = 8,
+            ToolTimeoutSeconds = 5,
+        };
+        using var client = new SurvivalcraftGenius.Agent.LlmClient(settings, handler);
+        var executions = 0;
+        var events = new List<SurvivalcraftGenius.Agent.AgentEvent>();
+        var agent = new SurvivalcraftGenius.Agent.GeniusAgent(
+            client,
+            SurvivalcraftGenius.Agent.ToolCatalog.CreateDefaultRegistry(),
+            (_, _) =>
+            {
+                executions++;
+                return Task.FromResult("nothing new");
+            },
+            events.Add,
+            settings);
+
+        Assert.True(agent.TryBeginTurn());
+        await agent.RunTurnAsync("loop please", CancellationToken.None);
+
+        // Only the first three verbatim-identical calls execute; the rest are
+        // refused, and the turn ends after the auto-extended budget runs out.
+        Assert.Equal(3, executions);
+        Assert.Contains(events, e => e.Kind == SurvivalcraftGenius.Agent.AgentEventKind.Progress);
+        Assert.Equal(SurvivalcraftGenius.Agent.AgentEventKind.TurnFinished, events[^1].Kind);
+        Assert.False(agent.IsBusy);
+    }
+}

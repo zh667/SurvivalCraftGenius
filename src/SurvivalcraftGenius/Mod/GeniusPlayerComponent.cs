@@ -300,6 +300,9 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                     }
 
                     break;
+                case AgentEventKind.Progress:
+                    AppendLog(GeniusChatRole.Info, agentEvent.Text);
+                    break;
                 case AgentEventKind.Error:
                     AppendLog(GeniusChatRole.Info, $"出错:{agentEvent.Text}");
                     break;
