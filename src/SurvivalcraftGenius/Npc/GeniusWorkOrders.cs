@@ -516,11 +516,13 @@ public sealed class AttackOrder(ComponentCreature target) : GeniusOrder
     private const float StrikeRange = 2.2f;
     private const float GiveUpRange = 30f;
     private double _nextPathUpdateTime;
+    private double _lootUntilTime;
 
     protected override float TimeoutSeconds => 60f;
 
     protected override void OnStart(ComponentGeniusBrain brain)
     {
+        brain.DrainRecentPickups();
         WalkTowards(brain, target.ComponentBody.Position, 1.5f);
     }
 
@@ -530,7 +532,25 @@ public sealed class AttackOrder(ComponentCreature target) : GeniusOrder
         if (target.ComponentHealth.Health <= 0f || target.ComponentBody.Entity.Project is null)
         {
             model.AttackOrder = false;
-            return $"defeated {target.DisplayName}";
+            // Linger a moment so the corpse drops spawn, hoover them up, and
+            // report the loot honestly (the ambient vacuum is invisible to the
+            // model otherwise).
+            if (_lootUntilTime == 0.0)
+            {
+                _lootUntilTime = brain.m_subsystemTime.GameTime + 1.5;
+            }
+
+            if (brain.m_subsystemTime.GameTime < _lootUntilTime)
+            {
+                brain.VacuumNearbyPickables(4.5f);
+                return null;
+            }
+
+            brain.VacuumNearbyPickables(4.5f);
+            var loot = brain.DrainRecentPickups();
+            return loot.Length > 0
+                ? $"defeated {target.DisplayName}; loot picked up: {loot}"
+                : $"defeated {target.DisplayName}; it dropped nothing I could reach";
         }
 
         var targetPosition = target.ComponentBody.Position;

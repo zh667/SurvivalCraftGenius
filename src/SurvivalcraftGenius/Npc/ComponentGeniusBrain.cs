@@ -27,6 +27,7 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     private double _nextFollowUpdateTime;
     private float _suppressedTime;
     private double _nextVacuumTime;
+    private readonly Dictionary<string, int> _recentPickups = [];
 
     public UpdateOrder UpdateOrder => UpdateOrder.Default;
 
@@ -192,7 +193,7 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         base.OnEntityRemoved();
     }
 
-    private void VacuumNearbyPickables()
+    public void VacuumNearbyPickables(float range = 2.6f)
     {
         if (m_componentMiner.Inventory is not { } inventory
             || m_componentCreature.ComponentHealth.Health <= 0f)
@@ -204,12 +205,20 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         foreach (var pickable in m_subsystemPickables.Pickables)
         {
             if (pickable.ToRemove
-                || Vector3.Distance(pickable.Position, myPosition) > 2.6f)
+                || Vector3.Distance(pickable.Position, myPosition) > range)
             {
                 continue;
             }
 
             var leftover = ComponentInventoryBase.AcquireItems(inventory, pickable.Value, pickable.Count);
+            var taken = pickable.Count - leftover;
+            if (taken > 0)
+            {
+                var name = BlocksManager.Blocks[Terrain.ExtractContents(pickable.Value)]
+                    .GetDisplayName(m_subsystemTerrain, pickable.Value);
+                _recentPickups[name] = _recentPickups.TryGetValue(name, out var count) ? count + taken : taken;
+            }
+
             if (leftover == 0)
             {
                 pickable.ToRemove = true;
@@ -220,6 +229,26 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
             }
         }
     }
+
+    /// <summary>
+    /// Items auto-picked since the last drain — tools report these so the model
+    /// knows loot went straight into the inventory (it can't see the vacuum).
+    /// </summary>
+    public string DrainRecentPickups()
+    {
+        if (_recentPickups.Count == 0)
+        {
+            return "";
+        }
+
+        var summary = string.Join(", ", _recentPickups.Select(pair => $"{pair.Key} x{pair.Value}"));
+        _recentPickups.Clear();
+        return summary;
+    }
+
+    public bool IsFollowing => _followTarget is not null;
+
+    public string? CurrentOrderLabel => _order?.GetType().Name;
 
     /// <summary>On death, drop everything carried so the player can recover it.</summary>
     private void SpillInventoryIfDead()

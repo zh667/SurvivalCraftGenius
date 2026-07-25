@@ -46,6 +46,23 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     private GeniusChatDialog? _dialog;
     private CancellationTokenSource? _turnCts;
     private string? _pendingMessage;
+    private LabelWidget? _statusHud;
+    private double _nextStatusUpdateTime;
+
+    private static readonly Dictionary<string, string> OrderLabels = new(StringComparer.Ordinal)
+    {
+        ["GotoOrder"] = "移动",
+        ["DigOrder"] = "挖掘",
+        ["PlaceOrder"] = "放置",
+        ["CollectItemsOrder"] = "捡拾",
+        ["TakeFromChestOrder"] = "取物",
+        ["PutIntoChestOrder"] = "存物",
+        ["CraftOrder"] = "合成",
+        ["SmeltOrder"] = "熔炼",
+        ["GiveToPlayerOrder"] = "交付",
+        ["AttackOrder"] = "战斗",
+        ["MineResourceOrder"] = "挖矿远征",
+    };
 
     public UpdateOrder UpdateOrder => UpdateOrder.Default;
 
@@ -84,6 +101,56 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         {
             OpenChatDialog();
         }
+
+        UpdateStatusHud();
+    }
+
+    /// <summary>
+    /// Persistent on-screen status so the player always knows whether the
+    /// companion is thinking, working, or has stopped.
+    /// </summary>
+    private void UpdateStatusHud()
+    {
+        if (_statusHud is null)
+        {
+            _statusHud = new LabelWidget
+            {
+                Text = "",
+                FontScale = 0.62f,
+                Color = new Color(168, 230, 160),
+                HorizontalAlignment = WidgetAlignment.Near,
+                VerticalAlignment = WidgetAlignment.Near,
+                Margin = new Vector2(12f, 96f),
+                IsVisible = false,
+            };
+            m_componentPlayer.GuiWidget.Children.Add(_statusHud);
+        }
+
+        if (Time.FrameStartTime < _nextStatusUpdateTime)
+        {
+            return;
+        }
+
+        _nextStatusUpdateTime = Time.FrameStartTime + 0.25;
+        string? status = null;
+        var brain = FindBrain();
+        if (brain?.CurrentOrderLabel is { } orderName)
+        {
+            status = OrderLabels.TryGetValue(orderName, out var label)
+                ? $"◆ 守护灵:{label}中"
+                : "◆ 守护灵:工作中";
+        }
+        else if (IsAgentBusy)
+        {
+            status = "◆ 守护灵:思考中…";
+        }
+        else if (brain?.IsFollowing == true)
+        {
+            status = "◆ 守护灵:跟随中";
+        }
+
+        _statusHud.IsVisible = status is not null;
+        _statusHud.Text = status ?? "";
     }
 
     public void OpenChatDialog()
@@ -247,6 +314,8 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     {
         _lifetime.Cancel();
         _dialog = null;
+        _statusHud?.ParentWidget?.Children.Remove(_statusHud);
+        _statusHud = null;
         base.OnEntityRemoved();
     }
 

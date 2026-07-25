@@ -50,7 +50,10 @@ public sealed class CollectItemsOrder : GeniusOrder
         if (nearest is null)
         {
             brain.m_componentPathfinding.Stop();
-            return Summarize();
+            var ambient = brain.DrainRecentPickups();
+            return ambient.Length > 0
+                ? Summarize() + $"; note: these were auto-picked into my inventory just before: {ambient}"
+                : Summarize();
         }
 
         if (nearestDistance <= PickupRange)
