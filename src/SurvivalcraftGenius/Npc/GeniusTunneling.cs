@@ -1,6 +1,7 @@
 using Engine;
 using Game;
 using SurvivalcraftGenius.Npc.Nav;
+using SurvivalcraftGenius.Agent;
 
 namespace SurvivalcraftGenius.Npc;
 
@@ -132,6 +133,9 @@ public sealed class TunnelNavigator(Vector3 target, bool allowDigging, float arr
 
     public string FailureReason { get; private set; } = "";
 
+    /// <summary>Category matching <see cref="FailureReason"/>, for error tagging.</summary>
+    public FailureType FailureType { get; private set; } = FailureType.NoPath;
+
     /// <summary>
     /// True while the async planner is thinking and the body is idle. Orders
     /// freeze their deadline on this (planning wall-clock is not body work).
@@ -200,6 +204,7 @@ public sealed class TunnelNavigator(Vector3 target, bool allowDigging, float arr
 
                 if (now - _waitingForChunksSince > 15.0)
                 {
+                    FailureType = FailureType.AreaNotLoaded;
                     FailureReason = "the terrain here never loaded (I waited 15s) — " +
                         "the world loads around players and around me on expeditions; " +
                         "teleport me near the player and retry";
@@ -273,6 +278,7 @@ public sealed class TunnelNavigator(Vector3 target, bool allowDigging, float arr
                 _stepDeadline = now + 6.0;
                 return NavStatus.Running;
             case TimedDigger.DigStatus.Undiggable:
+                FailureType = FailureType.ToolTooWeak;
                 FailureReason = "hit a block I cannot dig";
                 return NavStatus.Failed;
         }
@@ -311,6 +317,7 @@ public sealed class TunnelNavigator(Vector3 target, bool allowDigging, float arr
             if (digTime > 8.5f)
             {
                 var blockName = block.GetDisplayName(brain.SubsystemTerrain, cellValue);
+                FailureType = FailureType.ToolTooWeak;
                 FailureReason = $"my tools are too weak/broken to tunnel through {blockName} " +
                     "(craft or get a pick first)";
                 return NavStatus.Failed;
@@ -405,6 +412,7 @@ public sealed class TunnelNavigator(Vector3 target, bool allowDigging, float arr
 
         if (++_totalReplans >= MaxTotalReplans || _stalledReplans >= MaxStalledReplans)
         {
+            FailureType = _sawToolLimit ? FailureType.ToolTooWeak : FailureType.NoPath;
             FailureReason = BuildAutopsy(distance);
             StopMoving(brain);
             return NavStatus.Failed;
@@ -505,6 +513,7 @@ public sealed class TunnelNavigator(Vector3 target, bool allowDigging, float arr
             return NavStatus.Running;
         }
 
+        FailureType = FailureType.NoPath;
         FailureReason = "I nearly drowned underwater and had no safe way back to air";
         return NavStatus.Failed;
     }

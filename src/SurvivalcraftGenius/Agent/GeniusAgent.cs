@@ -55,6 +55,11 @@ public sealed class GeniusAgent
         - scan 的 world 字段是引擎实测的机制状态:time_of_day/moon_phase/temperature 等;
           shapeshifter_night=true 表示今晚(满月或新月)会出狼人等变身怪,规划夜间行动前先看它。
         - 工具报错时读完整句——错误信息里通常已写明下一步该调什么(缺什么材料、正确的名字、该去哪)。
+        - 失败格式为 error[分类]: 说明,分类决定对策:no_path/not_found/target_lost/area_not_loaded →
+          换路线换地点或稍等重试,自己解决;missing_material/missing_station/tool_too_weak →
+          按自力更生顺序先取得先决条件再重试;invalid_argument/invalid_target/wrong_method →
+          修正参数或改用说明里指出的工具;其余(endangered/died/superseded/timeout/loop_detected 等)按说明行事。
+          同一分类连续失败两次就必须换策略,绝不原样重试第三次。
         """;
 
     /// <summary>Marks the compacted-memory message so trims never drop it.</summary>
@@ -194,7 +199,7 @@ public sealed class GeniusAgent
                     {
                         AppendAndTrim(ChatMessage.ToolResult(
                             call.Id,
-                            "error: this exact call was repeated 4 times in a row — the approach is not working, change strategy or report to the player"));
+                            "error[loop_detected]: this exact call was repeated 4 times in a row — the approach is not working, change strategy or report to the player"));
                         continue;
                     }
 
@@ -271,7 +276,7 @@ public sealed class GeniusAgent
     {
         if (!_registry.TryGet(call.Name, out _))
         {
-            return $"error: unknown tool '{call.Name}'";
+            return $"error[invalid_argument]: unknown tool '{call.Name}'";
         }
 
         try
@@ -287,15 +292,15 @@ public sealed class GeniusAgent
             if (winner != work)
             {
                 return cancellationToken.IsCancellationRequested
-                    ? "error: cancelled by a newer instruction"
-                    : "error: tool timed out";
+                    ? "error[superseded]: cancelled by a newer instruction"
+                    : "error[timeout]: tool timed out";
             }
 
             return await work.ConfigureAwait(false);
         }
         catch (Exception exception)
         {
-            return $"error: {exception.Message}";
+            return $"error[internal]: {exception.Message}";
         }
     }
 

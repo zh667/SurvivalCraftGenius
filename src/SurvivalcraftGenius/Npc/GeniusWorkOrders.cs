@@ -1,3 +1,4 @@
+using SurvivalcraftGenius.Agent;
 using Engine;
 using Game;
 
@@ -241,7 +242,7 @@ public sealed class CraftOrder(string itemName, int count) : GeniusOrder
         var inventory = brain.Miner.Inventory;
         if (inventory is null)
         {
-            return "error: I have no inventory";
+            return "error[internal]: I have no inventory";
         }
 
         if (_match is null)
@@ -253,19 +254,19 @@ public sealed class CraftOrder(string itemName, int count) : GeniusOrder
                 // recipe, maybe the name is just misspelled.
                 if (GeniusCrafting.FindRecipe(brain, inventory, itemName, furnaceRecipes: true) is not null)
                 {
-                    return $"error: '{itemName}' is smelted, not crafted — use smelt " +
+                    return $"error[wrong_method]: '{itemName}' is smelted, not crafted — use smelt " +
                         "(needs a furnace nearby and fuel in my inventory)";
                 }
 
                 var suggestions = Agent.NameSuggest.Clause(
                     itemName, GeniusCrafting.RecipeResultNames(brain, furnaceRecipes: false));
-                return $"error: no crafting recipe makes '{itemName}'{suggestions}" +
+                return $"error[not_found]: no crafting recipe makes '{itemName}'{suggestions}" +
                     "; check the exact name with query_recipes — it may also be mined or gathered instead";
             }
 
             if (!GeniusCrafting.InventorySatisfies(inventory, _match.Needs))
             {
-                return $"error: not enough materials for '{itemName}' — missing: " +
+                return $"error[missing_material]: not enough materials for '{itemName}' — missing: " +
                     GeniusCrafting.DescribeShortfall(inventory, _match.Needs) +
                     $" (full recipe per item: {GeniusCrafting.DescribeNeeds(brain, _match.Needs)}). " +
                     "Collect or craft those first, then craft again";
@@ -285,9 +286,9 @@ public sealed class CraftOrder(string itemName, int count) : GeniusOrder
                     // the fix is one tool call away, not a trek.
                     var tableRecipe = FindHandCraftableTable(brain, inventory);
                     return tableRecipe is not null
-                        ? $"error: '{itemName}' needs a crafting table and none is within ~32 blocks — " +
+                        ? $"error[missing_station]: '{itemName}' needs a crafting table and none is within ~32 blocks — " +
                           $"but I can make one right now: craft '{tableRecipe}', place_block it, then retry"
-                        : "error: no crafting table within ~32 blocks — place one or lead me to one";
+                        : "error[missing_station]: no crafting table within ~32 blocks — place one or lead me to one";
                 }
 
                 _approach = new TunnelNavigator(
@@ -299,7 +300,7 @@ public sealed class CraftOrder(string itemName, int count) : GeniusOrder
             switch (_approach.Tick(brain, dt))
             {
                 case NavStatus.Failed:
-                    return $"error: cannot reach the crafting table ({_approach.FailureReason})";
+                    return $"error[{GeniusFailure.Slug(_approach.FailureType)}]: cannot reach the crafting table ({_approach.FailureReason})";
                 case NavStatus.Running:
                     return null;
             }
@@ -441,7 +442,7 @@ public sealed class SmeltOrder(string itemName, int count) : GeniusOrder
         var inventory = brain.Miner.Inventory;
         if (inventory is null)
         {
-            return "error: I have no inventory";
+            return "error[internal]: I have no inventory";
         }
 
         if (!CraftOrder.IsBlockNearby<FurnaceBlock>(brain, 5))
@@ -451,7 +452,7 @@ public sealed class SmeltOrder(string itemName, int count) : GeniusOrder
                 var furnace = CraftOrder.FindNearestBlock<FurnaceBlock>(brain, 32);
                 if (furnace is null)
                 {
-                    return "error: no furnace within ~32 blocks — place one or lead me to one";
+                    return "error[missing_station]: no furnace within ~32 blocks — place one or lead me to one";
                 }
 
                 _approach = new TunnelNavigator(
@@ -463,7 +464,7 @@ public sealed class SmeltOrder(string itemName, int count) : GeniusOrder
             switch (_approach.Tick(brain, dt))
             {
                 case NavStatus.Failed:
-                    return $"error: cannot reach the furnace ({_approach.FailureReason})";
+                    return $"error[{GeniusFailure.Slug(_approach.FailureType)}]: cannot reach the furnace ({_approach.FailureReason})";
                 case NavStatus.Running:
                     return null;
             }
@@ -478,25 +479,25 @@ public sealed class SmeltOrder(string itemName, int count) : GeniusOrder
             {
                 if (GeniusCrafting.FindRecipe(brain, inventory, itemName, furnaceRecipes: false) is not null)
                 {
-                    return $"error: '{itemName}' is crafted, not smelted — use craft instead";
+                    return $"error[wrong_method]: '{itemName}' is crafted, not smelted — use craft instead";
                 }
 
                 var suggestions = Agent.NameSuggest.Clause(
                     itemName, GeniusCrafting.RecipeResultNames(brain, furnaceRecipes: true));
-                return $"error: no smelting recipe makes '{itemName}'{suggestions}" +
+                return $"error[not_found]: no smelting recipe makes '{itemName}'{suggestions}" +
                     "; check the exact name with query_recipes";
             }
 
             if (!GeniusCrafting.InventorySatisfies(inventory, _match.Needs))
             {
-                return $"error: not enough materials for '{itemName}' — missing: " +
+                return $"error[missing_material]: not enough materials for '{itemName}' — missing: " +
                     GeniusCrafting.DescribeShortfall(inventory, _match.Needs) +
                     ". Collect those first (mine_resource / take_from_chest), then smelt again";
             }
 
             if (FindFuelSlot(brain, inventory, _match.Recipe.RequiredHeatLevel) < 0)
             {
-                return "error: no fuel in my inventory hot enough for this recipe " +
+                return "error[missing_material]: no fuel in my inventory hot enough for this recipe " +
                     $"(needs heat level ≥ {_match.Recipe.RequiredHeatLevel:0.#}) — " +
                     "coal works for everything; wood/planks only for low-heat recipes";
             }
@@ -580,7 +581,7 @@ public sealed class GiveToPlayerOrder(ComponentBody playerBody, string? nameFilt
         {
             if (brain.m_componentPathfinding.IsStuck)
             {
-                return "error: cannot reach the player";
+                return "error[no_path]: cannot reach the player";
             }
 
             if (brain.m_subsystemTime.GameTime >= _nextPathUpdateTime)
@@ -597,7 +598,7 @@ public sealed class GiveToPlayerOrder(ComponentBody playerBody, string? nameFilt
         var playerInventory = playerBody.Entity.FindComponent<ComponentInventory>();
         if (inventory is null || playerInventory is null)
         {
-            return "error: missing inventory";
+            return "error[internal]: missing inventory";
         }
 
         var moved = GeniusInventoryOps.MoveItems(brain, inventory, playerInventory, nameFilter, maxCount);
@@ -665,7 +666,7 @@ public sealed class AttackOrder(ComponentCreature target, bool sneak = false) : 
         {
             model.AttackOrder = false;
             brain.Creature.ComponentBody.IsSneaking = false;
-            return $"error: {target.DisplayName} escaped" +
+            return $"error[target_lost]: {target.DisplayName} escaped" +
                 (sneak ? "" : " — easily-startled animals (birds!) need attack with sneak=true");
         }
 
@@ -690,7 +691,7 @@ public sealed class AttackOrder(ComponentCreature target, bool sneak = false) : 
             if (brain.m_componentPathfinding.IsStuck)
             {
                 brain.Creature.ComponentBody.IsSneaking = false;
-                return $"error: cannot reach {target.DisplayName}";
+                return $"error[no_path]: cannot reach {target.DisplayName}";
             }
 
             if (brain.m_subsystemTime.GameTime >= _nextPathUpdateTime)

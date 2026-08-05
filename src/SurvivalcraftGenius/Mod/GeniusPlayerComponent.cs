@@ -45,6 +45,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     private string? _worldKey;
     private int _worldSeed;
     private bool _restoreAnnounced;
+    private readonly Dictionary<FailureType, int> _failureCounts = [];
     private LlmClient? _llmClient;
     private GeniusAgent? _agent;
     private GeniusChatDialog? _dialog;
@@ -338,6 +339,17 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     {
         _lifetime.Cancel();
         _llmClient?.Dispose();
+        lock (_failureCounts)
+        {
+            if (_failureCounts.Count > 0)
+            {
+                var stats = string.Join(", ", _failureCounts
+                    .OrderByDescending(pair => pair.Value)
+                    .Select(pair => $"{GeniusFailure.Slug(pair.Key)}×{pair.Value}"));
+                Log.Information($"[Genius] session failure stats: {stats}");
+            }
+        }
+
         base.Dispose();
     }
 
@@ -422,7 +434,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
 
                     break;
                 case AgentEventKind.ToolCallFinished:
-                    if (agentEvent.ToolName != "say" && agentEvent.Text.StartsWith("error:", StringComparison.Ordinal))
+                    if (agentEvent.ToolName != "say" && GeniusFailure.IsError(agentEvent.Text))
                     {
                         AppendLog(GeniusChatRole.Info, $"✗ {agentEvent.ToolName}: {Truncate(agentEvent.Text, 80)}");
                     }
@@ -461,7 +473,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         }
         catch (Exception exception)
         {
-            return Task.FromResult($"error: bad tool arguments ({exception.Message})");
+            return Task.FromResult($"error[invalid_argument]: bad tool arguments ({exception.Message})");
         }
 
         Log.Information($"[Genius] tool {name} {Truncate(argumentsJson, 160)}");
@@ -475,15 +487,25 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             }
             catch (Exception exception)
             {
-                completion.TrySetResult(Task.FromResult($"error: {exception.Message}"));
+                completion.TrySetResult(Task.FromResult($"error[internal]: {exception.Message}"));
             }
         });
         return completion.Task.Unwrap().ContinueWith(task =>
         {
             var result = task.IsFaulted
-                ? $"error: {task.Exception?.GetBaseException().Message}"
+                ? $"error[internal]: {task.Exception?.GetBaseException().Message}"
                 : task.Result;
             Log.Information($"[Genius] tool {name} -> {Truncate(result, 240)}");
+            // Failure telemetry: which categories bite most decides what to
+            // fix next (and feeds the future tool benchmark's case mining).
+            if (GeniusFailure.TryParse(result) is { } failureType)
+            {
+                lock (_failureCounts)
+                {
+                    _failureCounts[failureType] =
+                        _failureCounts.TryGetValue(failureType, out var seen) ? seen + 1 : 1;
+                }
+            }
             // If the owning turn was cancelled, the model never sees this
             // result — surface it in chat so the player still gets the outcome.
             if (LongRunningTools.Contains(name) && _agent?.IsBusy != true)
@@ -534,7 +556,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         var brain = FindBrain();
         if (brain is null)
         {
-            return Task.FromResult("error: the companion is not summoned — ask the player to summon it first");
+            return Task.FromResult("error[not_summoned]: the companion is not summoned — ask the player to summon it first");
         }
 
         switch (name)
@@ -567,7 +589,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 var waypoints = TravelMapBridge.TryReadWaypoints(m_componentPlayer);
                 if (waypoints is null)
                 {
-                    return Task.FromResult("error: TravelMap mod is not installed (or has no data yet)");
+                    return Task.FromResult("error[unavailable]: TravelMap mod is not installed (or has no data yet)");
                 }
 
                 if (waypoints.Count == 0)
@@ -591,7 +613,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                         waypoint.Name.Contains(waypointName, StringComparison.OrdinalIgnoreCase));
                     if (match is null)
                     {
-                        return Task.FromResult($"error: no waypoint matching '{waypointName}'");
+                        return Task.FromResult($"error[not_found]: no waypoint matching '{waypointName}'");
                     }
 
                     destination = match.Position;
@@ -603,7 +625,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 }
                 else
                 {
-                    return Task.FromResult("error: give either waypoint_name or x/y/z");
+                    return Task.FromResult("error[invalid_argument]: give either waypoint_name or x/y/z");
                 }
 
                 brain.StopMoving();
@@ -692,7 +714,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 var slotIndex = (int?)arguments["slot_index"] ?? -1;
                 if (inventory is null || slotIndex < 0 || slotIndex >= inventory.SlotsCount)
                 {
-                    return Task.FromResult("error: invalid slot index");
+                    return Task.FromResult("error[invalid_argument]: invalid slot index");
                 }
 
                 inventory.ActiveSlotIndex = slotIndex;
@@ -719,7 +741,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                           "be barren"
                         : $"nearby creatures: {string.Join(", ", nearby)}";
                     return Task.FromResult(
-                        $"error: no creature matching '{query}' within 24m{suggestions}; {listing}");
+                        $"error[not_found]: no creature matching '{query}' within 24m{suggestions}; {listing}");
                 }
 
                 var sneak = arguments["sneak"]?.ToObject<bool>() ?? false;
@@ -729,7 +751,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             }
 
             default:
-                return Task.FromResult($"error: unknown tool '{name}'");
+                return Task.FromResult($"error[invalid_argument]: unknown tool '{name}'");
         }
     }
 
@@ -752,7 +774,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 .ConfigureAwait(false);
             if (result is null)
             {
-                return notes + "error: the companion is not summoned";
+                return notes + "error[not_summoned]: the companion is not summoned";
             }
 
             if (!result.Contains(DeathMarker, StringComparison.Ordinal))
@@ -764,7 +786,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             var revived = await ReviveAsync().ConfigureAwait(false);
             if (!revived)
             {
-                return notes + "error: I died and could not be revived";
+                return notes + "error[died]: I died and could not be revived";
             }
 
             if (deathPosition is { } position)
@@ -778,7 +800,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             }
         }
 
-        return notes + "error: 反复阵亡,任务中止 —— 那片区域太危险了";
+        return notes + "error[died]: 反复阵亡,任务中止 —— 那片区域太危险了";
     }
 
     private async Task<bool> ReviveAsync()

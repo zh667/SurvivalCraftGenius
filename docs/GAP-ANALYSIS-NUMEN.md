@@ -106,7 +106,12 @@ Genius:16 commits 挤在两天、约 1/3 代码(含整个 Nav/ A\*)未提交、�
       防串档、system prompt 不落盘、原子写、上限 80 条)+ `GeniusAgent` 摘要压缩(>60 条时压最老段、
       保留最近 20 条、旧摘要自然折叠、失败退回硬截断、硬上限 160 兜底)+ 回合结束后台线程落盘;
       +8 测试(61/61)。结构化地标记忆(known_blocks 对应物)仍待做
-- [ ] 4. FailureType 枚举
+- [x] 4. FailureType 枚举(2026-08-05 第三轮):`Agent/GeniusFailure` 18 值分类
+      (自愈/先决条件/参数/状态四组),全部 71 处失败点迁移为 `error[slug]: 教学散文`,
+      TunnelNavigator 暴露 FailureType 供 goto/craft/smelt/mine 透传真实类别
+      (no_path vs tool_too_weak vs area_not_loaded),system prompt 添加按分类对策 +
+      "同分类连败两次必须换策略",玩家组件按分类计数、会话结束落日志(喂未来 benchmark);
+      +11 测试(72/72)
 - [~] 5. HTTP 重试已做(408/429/5xx/超时/连接错误,3 次尝试 + 线性退避,+3 测试);benchmark 未做
 - [x] 小刀合集:EquipBestToolFor 去重、_sawToolLimit 接通 NavPlan.ToolLimited、
       DeathPosition 去 static(改实例 + 死前捕获 brain 引用)、StartOrder 清 follow(工具描述同步)、

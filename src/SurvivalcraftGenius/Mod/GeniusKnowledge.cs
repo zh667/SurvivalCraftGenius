@@ -18,7 +18,7 @@ public static class GeniusKnowledge
     {
         if (string.IsNullOrWhiteSpace(query))
         {
-            return "error: give an item name to look up";
+            return "error[invalid_argument]: give an item name to look up";
         }
 
         var names = GetCraftingIdNames(subsystemTerrain);
@@ -109,7 +109,7 @@ public static class GeniusKnowledge
     {
         if (LanguageControl.KeyWords["Help"] is not SimpleJson.JsonObject helpObject)
         {
-            return "error: no help content loaded";
+            return "error[unavailable]: no help content loaded";
         }
 
         var topics = new List<(string Title, string Text)>();
@@ -564,7 +564,7 @@ public sealed class GeniusKnowledgeStore(string directory)
         {
             if (!System.IO.Directory.Exists(Directory))
             {
-                return "error: knowledge folder missing";
+                return "error[unavailable]: knowledge folder missing";
             }
 
             var files = System.IO.Directory.GetFiles(Directory)
@@ -635,7 +635,7 @@ public sealed class GeniusKnowledgeStore(string directory)
         }
         catch (Exception exception)
         {
-            return $"error: {exception.Message}";
+            return $"error[internal]: {exception.Message}";
         }
     }
 

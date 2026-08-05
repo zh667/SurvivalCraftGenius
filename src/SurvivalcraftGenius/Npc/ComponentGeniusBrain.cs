@@ -1,3 +1,4 @@
+using SurvivalcraftGenius.Agent;
 using Engine;
 using Game;
 using GameEntitySystem;
@@ -79,7 +80,7 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         // follow_player tool contract promises — otherwise following silently
         // resumes when the order finishes and drags the NPC back to the player.
         _followTarget = null;
-        _order?.Finish("error: superseded by a newer order");
+        _order?.Finish("error[superseded]: superseded by a newer order");
         _order = order;
         order.Start(this);
     }
@@ -93,7 +94,7 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     public void StopMoving()
     {
         _followTarget = null;
-        _order?.Finish("error: stopped");
+        _order?.Finish("error[superseded]: stopped");
         _order = null;
         m_componentPathfinding.Stop();
     }
@@ -127,7 +128,7 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
                 if (_suppressedTime > 8f)
                 {
                     _suppressedTime = 0f;
-                    _order.Finish("error: I'm in danger (fleeing) and cannot work right now");
+                    _order.Finish("error[endangered]: I'm in danger (fleeing) and cannot work right now");
                     _order = null;
                 }
 
@@ -212,8 +213,8 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         SpillInventoryIfDead();
         Expedition.Shutdown(this);
         _order?.Finish(died
-            ? "error: I died on the job"
-            : "error: the companion was removed from the world");
+            ? "error[died]: I died on the job"
+            : "error[not_summoned]: the companion was removed from the world");
         _order = null;
         base.OnEntityRemoved();
     }
@@ -319,7 +320,7 @@ public abstract class GeniusOrder
         }
         catch (Exception exception)
         {
-            Finish($"error: {exception.Message}");
+            Finish($"error[internal]: {exception.Message}");
         }
     }
 
@@ -355,7 +356,7 @@ public abstract class GeniusOrder
         }
         catch (Exception exception)
         {
-            Finish($"error: {exception.Message}");
+            Finish($"error[internal]: {exception.Message}");
             return true;
         }
 
@@ -370,7 +371,7 @@ public abstract class GeniusOrder
     protected abstract void OnStart(ComponentGeniusBrain brain);
 
     /// <summary>Override to report partial progress when the order times out.</summary>
-    protected virtual string TimeoutResult() => "error: timed out";
+    protected virtual string TimeoutResult() => "error[timeout]: timed out";
 
     /// <summary>True while an async planner is thinking (freezes the deadline).</summary>
     protected virtual bool DeadlineFrozen(ComponentGeniusBrain brain) => false;
@@ -419,7 +420,7 @@ public sealed class GotoOrder(Point3 target, bool digThrough = false) : GeniusOr
                 return $"arrived at ({target.X}, {target.Y}, {target.Z})";
             case NavStatus.Failed:
                 var position = brain.Creature.ComponentBody.Position;
-                return $"error: {_navigator.FailureReason} — I'm at " +
+                return $"error[{GeniusFailure.Slug(_navigator.FailureType)}]: {_navigator.FailureReason} — I'm at " +
                     $"({(int)position.X}, {(int)position.Y}, {(int)position.Z})" +
                     (digThrough ? "" : "; retry with dig_through=true to tunnel there");
             default:
@@ -444,7 +445,7 @@ public sealed class DigOrder(Point3 target) : GeniusOrder
         var cellValue = brain.SubsystemTerrain.Terrain.GetCellValue(target.X, target.Y, target.Z);
         if (Terrain.ExtractContents(cellValue) == 0)
         {
-            Finish("error: that position is air, nothing to dig");
+            Finish("error[invalid_target]: that position is air, nothing to dig");
             return;
         }
 
@@ -471,7 +472,7 @@ public sealed class DigOrder(Point3 target) : GeniusOrder
                 _digTimeNeeded = brain.Miner.CalculateDigTime(cellValue, Terrain.ExtractContents(activeValue));
                 if (float.IsPositiveInfinity(_digTimeNeeded))
                 {
-                    return "error: this block cannot be dug with my current tool";
+                    return "error[tool_too_weak]: this block cannot be dug with my current tool";
                 }
 
                 brain.m_componentPathfinding.Stop();
@@ -479,7 +480,7 @@ public sealed class DigOrder(Point3 target) : GeniusOrder
             }
             else if (brain.m_componentPathfinding.IsStuck)
             {
-                return "error: cannot get close enough to the block — path is blocked";
+                return "error[no_path]: cannot get close enough to the block — path is blocked";
             }
             else if (!brain.m_componentPathfinding.Destination.HasValue)
             {
@@ -537,7 +538,7 @@ public sealed class PlaceOrder(Point3 target, int slotIndex) : GeniusOrder
         var inventory = brain.Miner.Inventory;
         if (inventory is null || slotIndex < 0 || slotIndex >= inventory.SlotsCount)
         {
-            return "error: invalid inventory slot";
+            return "error[invalid_argument]: invalid inventory slot";
         }
 
         var position = brain.Creature.ComponentBody.Position;
@@ -546,7 +547,7 @@ public sealed class PlaceOrder(Point3 target, int slotIndex) : GeniusOrder
         {
             if (brain.m_componentPathfinding.IsStuck)
             {
-                return "error: cannot get close enough to the target spot";
+                return "error[no_path]: cannot get close enough to the target spot";
             }
 
             if (!brain.m_componentPathfinding.Destination.HasValue)
@@ -560,25 +561,25 @@ public sealed class PlaceOrder(Point3 target, int slotIndex) : GeniusOrder
         var existing = brain.SubsystemTerrain.Terrain.GetCellValue(target.X, target.Y, target.Z);
         if (Terrain.ExtractContents(existing) != 0)
         {
-            return "error: target position is not empty";
+            return "error[invalid_target]: target position is not empty";
         }
 
         var slotValue = inventory.GetSlotValue(slotIndex);
         var slotCount = inventory.GetSlotCount(slotIndex);
         if (slotValue == 0 || slotCount <= 0)
         {
-            return "error: that inventory slot is empty";
+            return "error[invalid_argument]: that inventory slot is empty";
         }
 
         var block = BlocksManager.Blocks[Terrain.ExtractContents(slotValue)];
         if (!block.IsPlaceable)
         {
-            return "error: that item is not a placeable block";
+            return "error[invalid_target]: that item is not a placeable block";
         }
 
         if (target.Y is <= 0 or >= 255)
         {
-            return "error: cannot place at that height";
+            return "error[invalid_target]: cannot place at that height";
         }
 
         var blockName = block.GetDisplayName(brain.SubsystemTerrain, slotValue);

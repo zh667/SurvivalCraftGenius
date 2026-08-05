@@ -37,7 +37,7 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
     protected override float TimeoutSeconds => 1500f;
 
     protected override string TimeoutResult() =>
-        Summary() + "; error: ran out of time — call mine_resource again with the remaining count to continue";
+        Summary() + "; error[timeout]: ran out of time — call mine_resource again with the remaining count to continue";
 
     protected override void OnStart(ComponentGeniusBrain brain)
     {
@@ -60,7 +60,7 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
                     }
 
                     var suggestions = Agent.NameSuggest.Clause(query, _seenBlockNames);
-                    return $"error: no blocks matching '{query}' within ~{SearchRadius}m " +
+                    return $"error[not_found]: no blocks matching '{query}' within ~{SearchRadius}m " +
                         $"(searched down to {SearchDepth} blocks below me){suggestions}" +
                         "; names must match this game's own terms (this is not Minecraft) — " +
                         "verify with query_recipes or query_help, or move me elsewhere and retry";
@@ -89,7 +89,8 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
                         _phase = Phase.Dig;
                         break;
                     case NavStatus.Failed:
-                        return Summary() + $"; error: {_navigator.FailureReason}";
+                        return Summary() +
+                            $"; error[{Agent.GeniusFailure.Slug(_navigator.FailureType)}]: {_navigator.FailureReason}";
                 }
 
                 return null;
@@ -98,7 +99,7 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
                 switch (_digger.Tick(brain, dt))
                 {
                     case TimedDigger.DigStatus.Undiggable:
-                        return Summary() + "; error: I cannot dig that block with my tools";
+                        return Summary() + "; error[tool_too_weak]: I cannot dig that block with my tools";
                     case TimedDigger.DigStatus.Done:
                     case TimedDigger.DigStatus.Idle:
                         _dugCount++;
@@ -124,7 +125,9 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
                         GrabNearbyDrops(brain);
                         return Summary() + "; I'm back";
                     case NavStatus.Failed:
-                        return Summary() + $"; error on the way back: {_navigator.FailureReason} — " +
+                        return Summary() +
+                            $"; error[{Agent.GeniusFailure.Slug(_navigator.FailureType)}] on the way back: " +
+                            $"{_navigator.FailureReason} — " +
                             $"I'm at ({(int)brain.Creature.ComponentBody.Position.X}, " +
                             $"{(int)brain.Creature.ComponentBody.Position.Y}, " +
                             $"{(int)brain.Creature.ComponentBody.Position.Z})";
@@ -133,7 +136,7 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
                 return null;
 
             default:
-                return "error: internal phase error";
+                return "error[internal]: internal phase error";
         }
     }
 
@@ -326,7 +329,7 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
         }
 
         var name = GeniusInventoryOps.ItemName(brain, cellValue);
-        return $"error: digging '{name}' with what I have would take ~{digTime:F0}s per block — " +
+        return $"error[tool_too_weak]: digging '{name}' with what I have would take ~{digTime:F0}s per block — " +
             "give me a proper pick or let me craft one first (craft 'pick'), then retry";
     }
 
