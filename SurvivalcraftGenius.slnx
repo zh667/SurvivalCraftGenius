@@ -5,4 +5,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/SurvivalcraftGenius.Tests/SurvivalcraftGenius.Tests.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/ToolBench/ToolBench.csproj" />
+  </Folder>
 </Solution>

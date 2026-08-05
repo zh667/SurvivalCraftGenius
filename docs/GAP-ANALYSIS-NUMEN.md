@@ -112,7 +112,12 @@ Genius:16 commits 挤在两天、约 1/3 代码(含整个 Nav/ A\*)未提交、�
       (no_path vs tool_too_weak vs area_not_loaded),system prompt 添加按分类对策 +
       "同分类连败两次必须换策略",玩家组件按分类计数、会话结束落日志(喂未来 benchmark);
       +11 测试(72/72)
-- [~] 5. HTTP 重试已做(408/429/5xx/超时/连接错误,3 次尝试 + 线性退避,+3 测试);benchmark 未做
+- [x] 5. HTTP 重试已做(408/429/5xx/超时/连接错误,3 次尝试 + 线性退避,+3 测试);
+      benchmark 已做(2026-08-06 第四轮):`tools/ToolBench` 控制台 + `benchmark/cases.json`
+      25 个冻结场景(craft↔smelt、无坐标先 scan、非 MC 配方陷阱、潜行狩猎、无进食工具诚实拒绝等),
+      真实 ToolCatalog + 真实 system prompt,三指标(selection/args_valid/args_match)+ pass@k,
+      结果追加 `benchmark/history.csv`(git 跟踪);无 key 优雅跳过仅校验用例;评分器 +7 测试(79/79)。
+      **待办:填 benchmark/.env 的 DeepSeek key 跑出第一行基线**
 - [x] 小刀合集:EquipBestToolFor 去重、_sawToolLimit 接通 NavPlan.ToolLimited、
       DeathPosition 去 static(改实例 + 死前捕获 brain 引用)、StartOrder 清 follow(工具描述同步)、
       agent 侧超时改为真 backstop(mine_resource 5400s 覆盖三条命、goto 600s)、
