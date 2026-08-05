@@ -487,7 +487,8 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 return Task.FromResult(GeniusPerception.DescribeInventory(brain));
             case "follow_player":
                 brain.StartFollowing(m_componentPlayer.ComponentBody);
-                return Task.FromResult("now following the player");
+                return Task.FromResult(
+                    "now following the player (ends when I start any new task; call follow_player again to resume)");
             case "goto":
             {
                 var order = new GotoOrder(
@@ -548,9 +549,15 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
 
                 brain.StopMoving();
                 brain.Creature.ComponentBody.Position = destination + new Vector3(0f, 0.5f, 0f);
+                var destCell = Terrain.ToCell(destination);
+                var loaded = brain.SubsystemTerrain.Terrain.GetChunkAtCell(destCell.X, destCell.Z) is not null;
                 return Task.FromResult(
                     $"teleported to ({(int)destination.X}, {(int)destination.Y}, {(int)destination.Z})" +
-                    "; note: if this is far from the player the area may be unloaded — prefer teleporting near the player or a visited spot");
+                    (loaded
+                        ? ""
+                        : "; note: this area is still loading — it will load around me within " +
+                          "a few seconds (I keep the world alive on expeditions); wait a moment, " +
+                          "then scan again before acting"));
             }
 
             case "dig_block":
@@ -644,10 +651,20 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 var target = FindAttackTarget(brain, query);
                 if (target is null)
                 {
-                    return Task.FromResult($"error: no creature matching '{query}' within 24m");
+                    var nearby = NearbyCreatureNames(brain, 24f);
+                    var suggestions = SurvivalcraftGenius.Agent.NameSuggest.Clause(query, nearby);
+                    var listing = nearby.Count == 0
+                        ? "no creatures are within 24m at all — note: wildlife spawns " +
+                          "periodically (around players, and around me on expeditions); if I " +
+                          "just arrived, wait ~1 minute or move on — this spot may also simply " +
+                          "be barren"
+                        : $"nearby creatures: {string.Join(", ", nearby)}";
+                    return Task.FromResult(
+                        $"error: no creature matching '{query}' within 24m{suggestions}; {listing}");
                 }
 
-                var order = new AttackOrder(target);
+                var sneak = arguments["sneak"]?.ToObject<bool>() ?? false;
+                var order = new AttackOrder(target, sneak);
                 brain.StartOrder(order);
                 return order.Completion;
             }
@@ -669,6 +686,9 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         var notes = "";
         for (var life = 0; life < 3; life++)
         {
+            // Capture the brain up front: after a death the revived NPC is a
+            // fresh entity, and only this instance knows where it fell.
+            var brain = await OnMainThread(FindBrain).ConfigureAwait(false);
             var result = await StartOrderAsync(() => new MineResourceOrder(resource, count))
                 .ConfigureAwait(false);
             if (result is null)
@@ -681,7 +701,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 return notes.Length == 0 ? result : $"{notes}最终:{result}";
             }
 
-            var deathPosition = ComponentGeniusBrain.LastDeathPosition;
+            var deathPosition = brain?.DeathPosition;
             var revived = await ReviveAsync().ConfigureAwait(false);
             if (!revived)
             {
@@ -760,6 +780,27 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             }
         });
         return completion.Task;
+    }
+
+    private List<string> NearbyCreatureNames(ComponentGeniusBrain brain, float range)
+    {
+        var names = new HashSet<string>();
+        foreach (var body in m_subsystemBodies.Bodies)
+        {
+            var creature = body.Entity.FindComponent<ComponentCreature>();
+            if (creature is null
+                || creature is ComponentPlayer
+                || creature == brain.Creature
+                || creature.ComponentHealth.Health <= 0f
+                || Vector3.Distance(body.Position, brain.Creature.ComponentBody.Position) > range)
+            {
+                continue;
+            }
+
+            names.Add(creature.DisplayName);
+        }
+
+        return [.. names];
     }
 
     private ComponentCreature? FindAttackTarget(ComponentGeniusBrain brain, string query)

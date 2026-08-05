@@ -29,7 +29,10 @@ public sealed class GeniusAgent
         - 行动前先感知:位置不明时先 scan_surroundings,再决定移动或挖掘。
         - 工具会返回成功或失败原因;失败时换个办法或如实告诉玩家,不要重复失败的调用。
         - 保持简短口语化的回复,像一个可靠的同伴,不要输出大段文字。
-        - 一次回合最多几步工具调用;复杂任务先做第一步并汇报。
+        - 接到任务后持续用工具推进,直到完成或确实无路可走。中途可以用 say 简短汇报,但**说完必须立刻继续行动**——
+          绝不能只说"我继续找"就停下等玩家催"继续"。只有任务完成、需要玩家做决定、或反复失败确认卡死时才结束回合。
+        - 世界围绕玩家和我保持加载:我远征到远处时会自己维持身边的区块和野生动物刷新,可以独立打猎/探索。
+          scan 报 area_not_loaded=true 说明刚到、区块还在加载,等几秒再 scan;刚到新地方生物也要等一会儿才会出现。
         - 挖掘后地上会有掉落物,用 collect_items 捡起来;交东西给玩家用 give_to_player。
         - 合成(craft)用背包里的材料;三宽配方需要附近有工作台。熔炼(smelt)需要附近有熔炉且背包里有燃料。
         - 缺材料时如实说缺什么,可以主动提出去挖/去捡。
@@ -47,6 +50,11 @@ public sealed class GeniusAgent
           游戏机制拿不准就 query_help 搜游戏帮助;read_knowledge 里有玩家整理的攻略技巧(打猎要潜行接近等),开工前值得翻一眼。
         - 绝不拆玩家的建筑和家具:火把、箱子、熔炉、工作台、床、木板房、屋里的装饰方块(如煤块)都不能挖;挖资源永远用矿石名(煤矿/铁矿),不确定是不是玩家放的就先问。
         - 玩家装了旅行地图时,可用 list_waypoints 查路标、teleport 传送到路标或坐标,长途优先传送。
+        - 本能(身体自动处理,你不用管也拦不住):掉进岩浆会自己跳出来逃向安全处;水下憋气快耗尽会自己上浮回空气;
+          着火时附近有水会自己冲进去。scan 的 my_status.instinct_active 显示当前是否有本能在接管身体。
+        - scan 的 world 字段是引擎实测的机制状态:time_of_day/moon_phase/temperature 等;
+          shapeshifter_night=true 表示今晚(满月或新月)会出狼人等变身怪,规划夜间行动前先看它。
+        - 工具报错时读完整句——错误信息里通常已写明下一步该调什么(缺什么材料、正确的名字、该去哪)。
         """;
 
     private readonly LlmClient _client;
@@ -207,11 +215,16 @@ public sealed class GeniusAgent
         }
     }
 
-    /// <summary>Long-running expedition tools get generous timeouts regardless of settings.</summary>
+    /// <summary>
+    /// Backstops only — each order enforces its own tighter deadline (frozen
+    /// while the async planner thinks), so these must outlast the worst case,
+    /// not race it: resilient mining chains up to three 1500s lives plus
+    /// revive/travel/recover legs; goto's 240s dig deadline excludes planning.
+    /// </summary>
     private static readonly Dictionary<string, int> LongToolTimeoutsSeconds = new(StringComparer.Ordinal)
     {
-        ["mine_resource"] = 1900,
-        ["goto"] = 300,
+        ["mine_resource"] = 5400,
+        ["goto"] = 600,
     };
 
     private async Task<string> ExecuteWithTimeoutAsync(ToolCall call, CancellationToken cancellationToken)

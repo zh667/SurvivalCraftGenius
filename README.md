@@ -11,7 +11,8 @@
 - 🧍 **召唤守护灵**:人形 NPC 实体,跟随玩家
 - 💬 **游戏内对话**:聊天窗口直接对话,LLM 驱动
 - 🔭 **环境感知**:扫描周围方块与生物并汇报
-- ⛏️ **真挖真放**:走玩家同款 `ComponentMiner` 逻辑挖掘/放置方块
+- ⛏️ **真挖真放**:按 `ComponentMiner` 的真实挖掘耗时/工具选择/耐久消耗执行,不瞬间破坏
+  (落地改动经 `SubsystemTerrain`,因引擎的 `ComponentMiner.Dig/Place` 在无 ComponentPlayer 的 NPC 上会崩溃)
 - 🔌 **任意 OpenAI 兼容后端**:DeepSeek / Qwen / Kimi / Claude / GPT,密钥仅存本地
 
 完整规划见 [docs/ROADMAP.md](docs/ROADMAP.md)。

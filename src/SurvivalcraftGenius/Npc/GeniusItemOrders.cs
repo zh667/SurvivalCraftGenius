@@ -113,7 +113,6 @@ public abstract class ChestOrderBase(Point3 chest) : GeniusOrder
 {
     private const float ReachDistance = 4.5f;
 
-    protected Point3 ChestPoint => chest;
 
     private Vector3 ChestCenter => new(chest.X + 0.5f, chest.Y + 0.5f, chest.Z + 0.5f);
 
@@ -235,12 +234,36 @@ public sealed class TakeFromChestOrder(Point3 chest, string? nameFilter, int max
         }
 
         var moved = GeniusInventoryOps.MoveItems(brain, chestInventory, inventory, nameFilter, maxCount);
+        if (moved.Count == 0 && !string.IsNullOrEmpty(nameFilter))
+        {
+            // Teach instead of dead-ending: show what IS in the chest, and
+            // catch near-miss names.
+            var contents = new Dictionary<string, int>();
+            for (var slot = 0; slot < chestInventory.SlotsCount; slot++)
+            {
+                var value = chestInventory.GetSlotValue(slot);
+                var count = chestInventory.GetSlotCount(slot);
+                if (value != 0 && count > 0)
+                {
+                    var name = GeniusInventoryOps.ItemName(brain, value);
+                    contents[name] = contents.TryGetValue(name, out var existing) ? existing + count : count;
+                }
+            }
+
+            if (contents.Count == 0)
+            {
+                return "the chest is empty";
+            }
+
+            var listing = string.Join(", ", contents.Select(pair => $"{pair.Key} x{pair.Value}"));
+            var suggestions = Agent.NameSuggest.Clause(nameFilter, contents.Keys);
+            return $"nothing matching '{nameFilter}' in the chest{suggestions}; it holds: {listing}";
+        }
+
         return GeniusInventoryOps.DescribeMoved(
             moved,
             "took from chest",
-            string.IsNullOrEmpty(nameFilter)
-                ? "the chest is empty (or my inventory is full)"
-                : $"nothing matching '{nameFilter}' in the chest (or my inventory is full)");
+            "the chest is empty (or my inventory is full)");
     }
 }
 
