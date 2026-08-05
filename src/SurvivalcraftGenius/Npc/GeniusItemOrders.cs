@@ -26,7 +26,7 @@ public sealed class CollectItemsOrder : GeniusOrder
         var inventory = brain.Miner.Inventory;
         if (inventory is null)
         {
-            return "error: I have no inventory";
+            return "error[internal]: I have no inventory";
         }
 
         var myPosition = brain.Creature.ComponentBody.Position;
@@ -83,7 +83,7 @@ public sealed class CollectItemsOrder : GeniusOrder
 
         if (brain.m_componentPathfinding.IsStuck)
         {
-            return Summarize() + $"; error: cannot reach the remaining items at " +
+            return Summarize() + $"; error[no_path]: cannot reach the remaining items at " +
                 $"({(int)nearest.Position.X}, {(int)nearest.Position.Y}, {(int)nearest.Position.Z})";
         }
 
@@ -130,7 +130,7 @@ public abstract class ChestOrderBase(Point3 chest) : GeniusOrder
         {
             if (brain.m_componentPathfinding.IsStuck)
             {
-                return "error: cannot get close enough to the chest — path is blocked";
+                return "error[no_path]: cannot get close enough to the chest — path is blocked";
             }
 
             if (!brain.m_componentPathfinding.Destination.HasValue)
@@ -146,7 +146,7 @@ public abstract class ChestOrderBase(Point3 chest) : GeniusOrder
         var chestInventory = blockEntity?.Entity.FindComponent<ComponentChest>();
         if (chestInventory is null)
         {
-            return $"error: no chest at ({chest.X}, {chest.Y}, {chest.Z})";
+            return $"error[not_found]: no chest at ({chest.X}, {chest.Y}, {chest.Z})";
         }
 
         return Transfer(brain, chestInventory);
@@ -230,7 +230,7 @@ public sealed class TakeFromChestOrder(Point3 chest, string? nameFilter, int max
         var inventory = brain.Miner.Inventory;
         if (inventory is null)
         {
-            return "error: I have no inventory";
+            return "error[internal]: I have no inventory";
         }
 
         var moved = GeniusInventoryOps.MoveItems(brain, chestInventory, inventory, nameFilter, maxCount);
@@ -275,7 +275,7 @@ public sealed class PutIntoChestOrder(Point3 chest, string? nameFilter)
         var inventory = brain.Miner.Inventory;
         if (inventory is null)
         {
-            return "error: I have no inventory";
+            return "error[internal]: I have no inventory";
         }
 
         var moved = GeniusInventoryOps.MoveItems(brain, inventory, chestInventory, nameFilter, int.MaxValue);
