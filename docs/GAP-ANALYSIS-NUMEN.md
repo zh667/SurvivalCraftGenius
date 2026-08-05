@@ -102,7 +102,10 @@ Genius:16 commits 挤在两天、约 1/3 代码(含整个 Nav/ A\*)未提交、�
 - [~] 1. 版本号已统一(csproj=modinfo=0.7.0,loader 日志改读程序集版本);**commit + tag 仍待做——最高优先级**
 - [~] 2. mine_resource 扫描缓存已做(一次扫描建候选表、弹出复核、走远 16 格或耗尽才重扫);
       CraftOrder 找工作台的 13.9 万格扫描未改(每次 craft 只扫一次,非每帧热点,可后做)
-- [ ] 3. 对话持久化 + 摘要
+- [x] 3. 对话持久化 + 摘要(2026-08-05 第二轮):`Agent/ConversationStore`(每世界一文件、内嵌 seed
+      防串档、system prompt 不落盘、原子写、上限 80 条)+ `GeniusAgent` 摘要压缩(>60 条时压最老段、
+      保留最近 20 条、旧摘要自然折叠、失败退回硬截断、硬上限 160 兜底)+ 回合结束后台线程落盘;
+      +8 测试(61/61)。结构化地标记忆(known_blocks 对应物)仍待做
 - [ ] 4. FailureType 枚举
 - [~] 5. HTTP 重试已做(408/429/5xx/超时/连接错误,3 次尝试 + 线性退避,+3 测试);benchmark 未做
 - [x] 小刀合集:EquipBestToolFor 去重、_sawToolLimit 接通 NavPlan.ToolLimited、

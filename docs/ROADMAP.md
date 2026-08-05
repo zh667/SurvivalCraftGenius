@@ -98,7 +98,9 @@ src/SurvivalcraftGenius/
 
 - [x] 旅行地图(SCTM)集成:`list_waypoints` 反射读取路标(无硬依赖,未装不受影响)、
       `teleport` 自由传送到路标或坐标(v0.4.0)
-- [ ] 每世界持久记忆:对话摘要、已知地标(家、矿点、熔炉位置),按种子隔离存储
+- [x] 每世界持久记忆(2026-08-05):对话按世界目录名持久化(`ConversationStore`,文件内嵌 seed 防
+      目录名复用串档,system prompt 不落盘)+ 超长历史 LLM 摘要压缩(替换 60 条硬截断,失败退回截断);
+      已知地标(家、矿点、熔炉位置)的结构化存储仍待做(目前靠对话摘要携带)
 - [x] 知识体系(v0.5.0):`query_recipes` 查游戏真实配方(含模组)、`query_help` 搜游戏内帮助页、
       `read_knowledge` 读本地攻略库(data:/SurvivalcraftGenius/knowledge,玩家可放 .md 攻略,Numen"调教"式)
 - [x] 机制知识分层(v0.6.1,Numen 五层模型):

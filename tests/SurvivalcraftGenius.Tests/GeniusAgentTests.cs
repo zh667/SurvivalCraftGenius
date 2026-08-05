@@ -120,6 +120,108 @@ public class GeniusAgentTests
     }
 }
 
+public class GeniusAgentMemoryTests
+{
+    private sealed class ScriptedHandler(params string[] responses) : HttpMessageHandler
+    {
+        private int _index;
+
+        public List<string> RequestBodies { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestBodies.Add(await request.Content!.ReadAsStringAsync(cancellationToken));
+            var body = responses[Math.Min(_index++, responses.Length - 1)];
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json"),
+            };
+        }
+    }
+
+    private static GeniusSettings TestSettings => new()
+    {
+        ApiBaseUrl = "http://localhost/v1",
+        ApiKey = "k",
+        Model = "m",
+        MaxToolSteps = 4,
+        ToolTimeoutSeconds = 5,
+    };
+
+    [Fact]
+    public async Task LongHistory_IsCompactedIntoSummaryBeforeCompletion()
+    {
+        const string summaryResponse =
+            """{"choices":[{"message":{"content":"SUMMARY_MARK 玩家在挖钻石,家在(10,64,20)。"}}]}""";
+        const string finalResponse = """{"choices":[{"message":{"content":"继续挖。"}}]}""";
+        var handler = new ScriptedHandler(summaryResponse, finalResponse);
+        var settings = TestSettings;
+        using var client = new LlmClient(settings, handler);
+        var restored = new List<ChatMessage>();
+        for (var i = 0; i < 70; i++)
+        {
+            restored.Add(i % 2 == 0 ? ChatMessage.User($"msg{i}") : ChatMessage.Assistant($"re{i}"));
+        }
+
+        IReadOnlyList<ChatMessage>? persisted = null;
+        var events = new List<AgentEvent>();
+        var agent = new GeniusAgent(
+            client,
+            ToolCatalog.CreateDefaultRegistry(),
+            (_, _) => Task.FromResult(""),
+            events.Add,
+            settings,
+            restored,
+            history => persisted = history);
+
+        Assert.True(agent.TryBeginTurn());
+        await agent.RunTurnAsync("现在做什么?", CancellationToken.None);
+
+        // First request is the summarizer (no tools offered), second is the
+        // real completion carrying the compacted summary instead of 50+ turns.
+        Assert.Equal(2, handler.RequestBodies.Count);
+        Assert.Contains("记忆压缩器", handler.RequestBodies[0]);
+        Assert.DoesNotContain("\"tools\"", handler.RequestBodies[0]);
+        Assert.Contains("SUMMARY_MARK", handler.RequestBodies[1]);
+        Assert.DoesNotContain("msg0", handler.RequestBodies[1]);
+        Assert.Contains(events, e => e.Kind == AgentEventKind.Progress && e.Text.Contains("压缩"));
+
+        Assert.NotNull(persisted);
+        Assert.True(persisted.Count < 30, $"expected compacted history, got {persisted.Count} messages");
+        Assert.Equal("system", persisted[0].Role);
+        Assert.StartsWith(GeniusAgent.SummaryPrefix, persisted[1].Content, StringComparison.Ordinal);
+        // The verbatim tail survived the compaction.
+        Assert.Contains(persisted, message => message.Content == "msg68");
+    }
+
+    [Fact]
+    public async Task PersistHook_ReceivesHistorySnapshotAtTurnEnd()
+    {
+        const string finalResponse = """{"choices":[{"message":{"content":"你好。"}}]}""";
+        var handler = new ScriptedHandler(finalResponse);
+        var settings = TestSettings;
+        using var client = new LlmClient(settings, handler);
+        IReadOnlyList<ChatMessage>? persisted = null;
+        var agent = new GeniusAgent(
+            client,
+            ToolCatalog.CreateDefaultRegistry(),
+            (_, _) => Task.FromResult(""),
+            _ => { },
+            settings,
+            restoredHistory: null,
+            persistHistory: history => persisted = history);
+
+        Assert.True(agent.TryBeginTurn());
+        await agent.RunTurnAsync("你好", CancellationToken.None);
+
+        Assert.NotNull(persisted);
+        Assert.Contains(persisted, message => message.Role == "user" && message.Content == "你好");
+        Assert.Contains(persisted, message => message.Role == "assistant" && message.Content == "你好。");
+    }
+}
+
 public class GeniusAgentLoopTests
 {
     private sealed class RepeatingHandler : System.Net.Http.HttpMessageHandler

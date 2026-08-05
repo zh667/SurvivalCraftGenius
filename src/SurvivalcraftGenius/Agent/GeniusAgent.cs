@@ -57,29 +57,52 @@ public sealed class GeniusAgent
         - 工具报错时读完整句——错误信息里通常已写明下一步该调什么(缺什么材料、正确的名字、该去哪)。
         """;
 
+    /// <summary>Marks the compacted-memory message so trims never drop it.</summary>
+    public const string SummaryPrefix = "(记忆摘要——之前对话的压缩记录)";
+
+    private const string SummarizerPrompt =
+        """
+        你是记忆压缩器。把下面游戏内玩家与AI同伴的对话历史压缩成一份简明备忘录,供同伴在后续对话中延续记忆。
+        必须保留:玩家的称呼/偏好/长期目标;已完成与未完成的任务及进度;重要坐标和地点;背包/装备的关键变化;
+        踩过的坑和学到的教训;玩家明确的禁令。
+        丢弃:寒暄、失败重试的过程细节、一次性的琐碎操作。
+        直接输出备忘录正文,不要开场白。
+        """;
+
+    /// <summary>Above this size the oldest turns get summarized into one message.</summary>
+    private const int CompactTriggerCount = 60;
+
+    /// <summary>Recent messages kept verbatim through a compaction.</summary>
+    private const int KeepRecentCount = 20;
+
+    /// <summary>Last-resort truncation cap if summarization keeps failing.</summary>
+    private const int HardCapMessages = 160;
+
     private readonly LlmClient _client;
     private readonly ToolRegistry _registry;
     private readonly Func<string, string, Task<string>> _executeTool;
     private readonly Action<AgentEvent> _onEvent;
     private readonly GeniusSettings _settings;
+    private readonly Action<IReadOnlyList<ChatMessage>>? _persistHistory;
     private readonly List<ChatMessage> _history = [];
     private readonly object _gate = new();
     private bool _busy;
-
-    private const int MaxHistoryMessages = 60;
 
     public GeniusAgent(
         LlmClient client,
         ToolRegistry registry,
         Func<string, string, Task<string>> executeTool,
         Action<AgentEvent> onEvent,
-        GeniusSettings settings)
+        GeniusSettings settings,
+        IReadOnlyList<ChatMessage>? restoredHistory = null,
+        Action<IReadOnlyList<ChatMessage>>? persistHistory = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _executeTool = executeTool ?? throw new ArgumentNullException(nameof(executeTool));
         _onEvent = onEvent ?? throw new ArgumentNullException(nameof(onEvent));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _persistHistory = persistHistory;
         var prompt = DefaultSystemPrompt;
         if (!string.IsNullOrWhiteSpace(settings.SystemPromptExtra))
         {
@@ -87,6 +110,13 @@ public sealed class GeniusAgent
         }
 
         _history.Add(ChatMessage.System(prompt));
+        if (restoredHistory is not null)
+        {
+            // The persisted file never contains a system prompt (it evolves
+            // with the mod); everything else resumes where the last session
+            // left off.
+            _history.AddRange(restoredHistory.Where(message => message.Role != "system"));
+        }
     }
 
     public bool IsBusy
@@ -128,6 +158,7 @@ public sealed class GeniusAgent
             var repeatCount = 0;
             while (true)
             {
+                await CompactHistoryIfNeededAsync(cancellationToken).ConfigureAwait(false);
                 var response = await _client
                     .CompleteAsync(_history, _registry.Tools, cancellationToken)
                     .ConfigureAwait(false);
@@ -211,6 +242,15 @@ public sealed class GeniusAgent
                 _busy = false;
             }
 
+            try
+            {
+                _persistHistory?.Invoke([.. _history]);
+            }
+            catch (Exception)
+            {
+                // Persistence is best-effort; never let it break the turn.
+            }
+
             _onEvent(new AgentEvent(AgentEventKind.TurnFinished, ""));
         }
     }
@@ -259,22 +299,127 @@ public sealed class GeniusAgent
         }
     }
 
-    private void AppendAndTrim(ChatMessage message)
+    /// <summary>
+    /// Compacts the oldest turns into one summary message once the history
+    /// outgrows <see cref="CompactTriggerCount"/> (Numen-style auto-compaction:
+    /// the previous summary sits inside the compacted range, so it gets folded
+    /// into the new one). Falls back to hard truncation when the summarizer
+    /// call fails, so the turn always proceeds.
+    /// </summary>
+    private async Task CompactHistoryIfNeededAsync(CancellationToken cancellationToken)
     {
-        _history.Add(message);
-        if (_history.Count <= MaxHistoryMessages)
+        if (_history.Count <= CompactTriggerCount)
         {
             return;
         }
 
-        // Keep the system prompt; drop the oldest turns. Never let a dangling
-        // tool result open the window (APIs reject tool messages without their
-        // originating assistant tool_calls message).
-        var removable = _history.Count - MaxHistoryMessages;
-        _history.RemoveRange(1, removable);
-        while (_history.Count > 1 && _history[1].Role == "tool")
+        // Keep the tail verbatim, but never split an assistant tool_calls
+        // message from its tool results.
+        var tailStart = _history.Count - KeepRecentCount;
+        while (tailStart < _history.Count && _history[tailStart].Role == "tool")
         {
-            _history.RemoveAt(1);
+            tailStart++;
+        }
+
+        var chunkCount = tailStart - 1;
+        if (chunkCount < 1)
+        {
+            return;
+        }
+
+        try
+        {
+            _onEvent(new AgentEvent(AgentEventKind.Progress, "对话变长,正在压缩记忆…"));
+            var transcript = BuildTranscript(_history.GetRange(1, chunkCount));
+            var response = await _client.CompleteAsync(
+                [ChatMessage.System(SummarizerPrompt), ChatMessage.User(transcript)],
+                [],
+                cancellationToken).ConfigureAwait(false);
+            var summary = response.Content.Trim();
+            if (summary.Length == 0)
+            {
+                throw new LlmException("summarizer returned empty content");
+            }
+
+            _history.RemoveRange(1, chunkCount);
+            _history.Insert(1, ChatMessage.User(SummaryPrefix + "\n" + summary));
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            HardTrim();
+        }
+    }
+
+    /// <summary>Serializes a history chunk into compact text for the summarizer.</summary>
+    private static string BuildTranscript(IReadOnlyList<ChatMessage> chunk)
+    {
+        var builder = new System.Text.StringBuilder();
+        foreach (var message in chunk)
+        {
+            switch (message.Role)
+            {
+                case "user":
+                    builder.AppendLine("玩家: " + Truncate(message.Content, 400));
+                    break;
+                case "assistant":
+                    if (!string.IsNullOrEmpty(message.Content))
+                    {
+                        builder.AppendLine("同伴: " + Truncate(message.Content, 400));
+                    }
+
+                    foreach (var call in message.ToolCalls)
+                    {
+                        builder.AppendLine($"同伴调用 {call.Name}({Truncate(call.ArgumentsJson, 120)})");
+                    }
+
+                    break;
+                case "tool":
+                    builder.AppendLine("工具结果: " + Truncate(message.Content, 240));
+                    break;
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private static string Truncate(string text, int maxLength) =>
+        text.Length <= maxLength ? text : text[..maxLength] + "…";
+
+    private void AppendAndTrim(ChatMessage message)
+    {
+        _history.Add(message);
+        if (_history.Count <= HardCapMessages)
+        {
+            return;
+        }
+
+        HardTrim();
+    }
+
+    /// <summary>
+    /// Last-resort truncation (summarization failed or the cap was hit
+    /// mid-turn): keep the system prompt and any memory summary, drop the
+    /// oldest turns. Never let a dangling tool result open the window (APIs
+    /// reject tool messages without their originating assistant tool_calls).
+    /// </summary>
+    private void HardTrim()
+    {
+        var first = _history.Count > 1 && _history[1].Role == "user"
+            && _history[1].Content.StartsWith(SummaryPrefix, StringComparison.Ordinal) ? 2 : 1;
+        var removable = _history.Count - CompactTriggerCount;
+        if (removable <= 0 || first >= _history.Count)
+        {
+            return;
+        }
+
+        _history.RemoveRange(first, Math.Min(removable, _history.Count - first));
+        while (_history.Count > first && _history[first].Role == "tool")
+        {
+            _history.RemoveAt(first);
         }
     }
 }

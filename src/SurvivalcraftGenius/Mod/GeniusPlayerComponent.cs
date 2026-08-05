@@ -41,6 +41,10 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     private GeniusSettingsStore _settingsStore = null!;
     private GeniusKnowledgeStore _knowledgeStore = null!;
     private GeniusSettings _settings = null!;
+    private ConversationStore? _conversationStore;
+    private string? _worldKey;
+    private int _worldSeed;
+    private bool _restoreAnnounced;
     private LlmClient? _llmClient;
     private GeniusAgent? _agent;
     private GeniusChatDialog? _dialog;
@@ -307,6 +311,17 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         _knowledgeStore = new GeniusKnowledgeStore(
             Storage.GetSystemPath("data:/SurvivalcraftGenius/knowledge"));
         _knowledgeStore.EnsureStarter();
+        // Per-world conversation memory, seed-guarded because the game
+        // recycles world folder names (same lesson as TravelMap's map cache).
+        var gameInfo = Project.FindSubsystem<SubsystemGameInfo>(throwOnError: false);
+        if (gameInfo is not null && !string.IsNullOrEmpty(gameInfo.DirectoryName))
+        {
+            _conversationStore = new ConversationStore(
+                Storage.GetSystemPath("data:/SurvivalcraftGenius/conversations"));
+            _worldKey = gameInfo.DirectoryName;
+            _worldSeed = gameInfo.WorldSeed;
+        }
+
         Log.Information($"[Genius] Player component loaded (workType={_workType}).");
     }
 
@@ -338,12 +353,56 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     {
         _llmClient?.Dispose();
         _llmClient = new LlmClient(_settings);
+        var restored = LoadPersistedConversation();
         _agent = new GeniusAgent(
             _llmClient,
             ToolCatalog.CreateDefaultRegistry(),
             ExecuteToolAsync,
             OnAgentEvent,
-            _settings);
+            _settings,
+            restored,
+            PersistConversation);
+        if (restored is not null && !_restoreAnnounced)
+        {
+            _restoreAnnounced = true;
+            AppendLog(GeniusChatRole.Info, $"已恢复这个世界的对话记忆({restored.Count} 条)。");
+        }
+    }
+
+    private List<Agent.ChatMessage>? LoadPersistedConversation()
+    {
+        if (_conversationStore is null || _worldKey is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return _conversationStore.Load(_worldKey, _worldSeed);
+        }
+        catch (Exception exception)
+        {
+            Log.Warning($"[Genius] Failed to restore conversation: {exception.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>Called by the agent at each turn's end, on its background thread.</summary>
+    private void PersistConversation(IReadOnlyList<Agent.ChatMessage> history)
+    {
+        if (_conversationStore is null || _worldKey is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _conversationStore.Save(_worldKey, _worldSeed, history);
+        }
+        catch (Exception exception)
+        {
+            Log.Warning($"[Genius] Failed to persist conversation: {exception.Message}");
+        }
     }
 
     private void OnAgentEvent(AgentEvent agentEvent)
