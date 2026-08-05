@@ -1,3 +1,6 @@
+using System.Net;
+using System.Net.Http;
+using System.Text;
 using Newtonsoft.Json.Linq;
 using SurvivalcraftGenius.Agent;
 using Xunit;
@@ -6,6 +9,66 @@ namespace SurvivalcraftGenius.Tests;
 
 public class LlmClientTests
 {
+    private const string OkBody = """{"choices":[{"message":{"content":"ok"}}]}""";
+
+    /// <summary>Serves the scripted responses in order, repeating the last one.</summary>
+    private sealed class SequenceHandler(params (int Status, string Body)[] responses) : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var (status, body) = responses[Math.Min(Requests, responses.Length - 1)];
+            Requests++;
+            return Task.FromResult(new HttpResponseMessage((HttpStatusCode)status)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json"),
+            });
+        }
+    }
+
+    private static LlmClient CreateClient(SequenceHandler handler) =>
+        new(new GeniusSettings { ApiKey = "key" }, handler) { RetryDelay = TimeSpan.Zero };
+
+    [Fact]
+    public async Task CompleteAsync_RetriesTransientServerErrors()
+    {
+        var handler = new SequenceHandler((500, "boom"), (429, "slow down"), (200, OkBody));
+        using var client = CreateClient(handler);
+
+        var response = await client.CompleteAsync([ChatMessage.User("hi")], [], CancellationToken.None);
+
+        Assert.Equal("ok", response.Content);
+        Assert.Equal(3, handler.Requests);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_DoesNotRetryClientErrors()
+    {
+        var handler = new SequenceHandler((401, "bad key"));
+        using var client = CreateClient(handler);
+
+        var exception = await Assert.ThrowsAsync<LlmException>(
+            () => client.CompleteAsync([ChatMessage.User("hi")], [], CancellationToken.None));
+
+        Assert.Contains("401", exception.Message);
+        Assert.Equal(1, handler.Requests);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_GivesUpAfterMaxAttempts()
+    {
+        var handler = new SequenceHandler((503, "still down"));
+        using var client = CreateClient(handler);
+
+        var exception = await Assert.ThrowsAsync<LlmException>(
+            () => client.CompleteAsync([ChatMessage.User("hi")], [], CancellationToken.None));
+
+        Assert.Contains("503", exception.Message);
+        Assert.Equal(3, handler.Requests);
+    }
+
     [Fact]
     public void BuildPayload_SerializesMessagesAndTools()
     {

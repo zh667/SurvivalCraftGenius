@@ -46,8 +46,12 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         }
     }
 
-    /// <summary>Where the NPC last died (for gear recovery); set on fatal removal.</summary>
-    public static Vector3? LastDeathPosition { get; private set; }
+    /// <summary>
+    /// Where this NPC died (for gear recovery); set on fatal removal. Instance
+    /// state — callers must capture the brain reference before the death, since
+    /// the revived NPC is a fresh entity with a fresh brain.
+    /// </summary>
+    public Vector3? DeathPosition { get; private set; }
 
     public ComponentCreature Creature => m_componentCreature;
 
@@ -61,12 +65,20 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
 
     public SubsystemBlockEntities SubsystemBlockEntities => m_subsystemBlockEntities;
 
-    public bool HasActiveOrder => _order is not null;
+    /// <summary>Self-preservation reflexes that outbid orders for the body.</summary>
+    public GeniusInstincts Instincts { get; } = new();
+
+    /// <summary>Keeps chunks loaded and wildlife spawning around the NPC on far expeditions.</summary>
+    public GeniusExpeditionKeeper Expedition { get; } = new();
 
     /// <summary>Starts an order; a running order is cancelled with a failure result.</summary>
     public void StartOrder(GeniusOrder order)
     {
         ArgumentNullException.ThrowIfNull(order);
+        // One body, one intent: a new order also ends follow mode, as the
+        // follow_player tool contract promises — otherwise following silently
+        // resumes when the order finishes and drags the NPC back to the player.
+        _followTarget = null;
         _order?.Finish("error: superseded by a newer order");
         _order = order;
         order.Start(this);
@@ -87,6 +99,15 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     }
 
     public void Update(float dt)
+    {
+        Expedition.Tick(this);
+        UpdateCore(dt);
+        // Instincts run last so their movement overrides whatever the order
+        // asked for this frame — the LLM is the lowest bidder for the body.
+        Instincts.Tick(this, dt);
+    }
+
+    private void UpdateCore(float dt)
     {
         // Always vacuum drops at my feet — thrown gifts, dig spoils, loot.
         if (m_subsystemTime.GameTime >= _nextVacuumTime)
@@ -119,6 +140,9 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
             {
                 _order = null;
                 m_componentPathfinding.Stop();
+                // Blanket cleanup — orders that sneak (stalking attacks) must
+                // not leave the flag on after any exit path incl. timeout.
+                m_componentCreature.ComponentBody.IsSneaking = false;
             }
 
             return;
@@ -186,6 +210,7 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
             $"[Genius] NPC entity removed from project (pos={m_componentCreature.ComponentBody.Position}, " +
             $"health={m_componentCreature.ComponentHealth.Health}, died={died}).");
         SpillInventoryIfDead();
+        Expedition.Shutdown(this);
         _order?.Finish(died
             ? "error: I died on the job"
             : "error: the companion was removed from the world");
@@ -259,7 +284,7 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
             return;
         }
 
-        LastDeathPosition = m_componentCreature.ComponentBody.Position;
+        DeathPosition = m_componentCreature.ComponentBody.Position;
         var position = m_componentCreature.ComponentBody.Position + new Vector3(0f, 0.5f, 0f);
         for (var slot = 0; slot < inventory.SlotsCount; slot++)
         {
@@ -306,7 +331,14 @@ public abstract class GeniusOrder
             return true;
         }
 
-        if (brain.m_subsystemTime.GameTime >= _deadline)
+        if (DeadlineFrozen(brain))
+        {
+            // The async route planner is thinking and the body is idle; the
+            // deadline budgets body work, so wall-clock spent planning must
+            // not burn it (Numen: freeze task deadline while planningInFlight).
+            _deadline += dt;
+        }
+        else if (brain.m_subsystemTime.GameTime >= _deadline)
         {
             Finish(TimeoutResult());
             return true;
@@ -340,6 +372,9 @@ public abstract class GeniusOrder
     /// <summary>Override to report partial progress when the order times out.</summary>
     protected virtual string TimeoutResult() => "error: timed out";
 
+    /// <summary>True while an async planner is thinking (freezes the deadline).</summary>
+    protected virtual bool DeadlineFrozen(ComponentGeniusBrain brain) => false;
+
     /// <summary>Returns null while running, or the final result string.</summary>
     protected abstract string? OnTick(ComponentGeniusBrain brain, float dt);
 
@@ -372,6 +407,9 @@ public sealed class GotoOrder(Point3 target, bool digThrough = false) : GeniusOr
     {
         _navigator = new TunnelNavigator(Destination, digThrough, arriveDistance: 2.0f);
     }
+
+    protected override bool DeadlineFrozen(ComponentGeniusBrain brain) =>
+        _navigator?.PlanningInFlight == true;
 
     protected override string? OnTick(ComponentGeniusBrain brain, float dt)
     {
@@ -428,7 +466,7 @@ public sealed class DigOrder(Point3 target) : GeniusOrder
         {
             if (distance <= ReachDistance)
             {
-                EquipBestToolFor(brain, cellValue);
+                TimedDigger.EquipBestToolFor(brain, cellValue);
                 var activeValue = brain.Miner.ActiveBlockValue;
                 _digTimeNeeded = brain.Miner.CalculateDigTime(cellValue, Terrain.ExtractContents(activeValue));
                 if (float.IsPositiveInfinity(_digTimeNeeded))
@@ -478,34 +516,6 @@ public sealed class DigOrder(Point3 target) : GeniusOrder
             noParticleSystem: false);
         brain.Miner.DamageActiveTool(1);
         return $"dug '{blockName}' at ({target.X}, {target.Y}, {target.Z}); drops fell on the ground";
-    }
-
-    /// <summary>Switches the active slot to whichever tool digs this block fastest.</summary>
-    private static void EquipBestToolFor(ComponentGeniusBrain brain, int cellValue)
-    {
-        var inventory = brain.Miner.Inventory;
-        if (inventory is null)
-        {
-            return;
-        }
-
-        var bestSlot = inventory.ActiveSlotIndex;
-        var bestTime = brain.Miner.CalculateDigTime(
-            cellValue,
-            Terrain.ExtractContents(inventory.GetSlotValue(bestSlot)));
-        for (var slot = 0; slot < inventory.SlotsCount; slot++)
-        {
-            var candidate = brain.Miner.CalculateDigTime(
-                cellValue,
-                Terrain.ExtractContents(inventory.GetSlotValue(slot)));
-            if (candidate < bestTime)
-            {
-                bestTime = candidate;
-                bestSlot = slot;
-            }
-        }
-
-        inventory.ActiveSlotIndex = bestSlot;
     }
 }
 

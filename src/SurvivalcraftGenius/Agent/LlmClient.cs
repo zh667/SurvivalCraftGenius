@@ -17,8 +17,13 @@ public sealed record LlmResponse(string Content, IReadOnlyList<ToolCall> ToolCal
 /// </summary>
 public sealed class LlmClient : IDisposable
 {
+    private const int MaxAttempts = 3;
+
     private readonly GeniusSettings _settings;
     private readonly HttpClient _http;
+
+    /// <summary>Backoff unit between retries (attempt × this); tests shrink it to zero.</summary>
+    public TimeSpan RetryDelay { get; set; } = TimeSpan.FromSeconds(2);
 
     public LlmClient(GeniusSettings settings, HttpMessageHandler? handler = null)
     {
@@ -27,25 +32,63 @@ public sealed class LlmClient : IDisposable
         _http.Timeout = TimeSpan.FromSeconds(Math.Max(10, settings.RequestTimeoutSeconds));
     }
 
+    /// <summary>
+    /// Sends the completion request, retrying transient failures (timeouts,
+    /// connection errors, 408/429/5xx) so a single hiccup doesn't kill the
+    /// whole agent turn. Non-retryable statuses (bad key, bad request) and
+    /// user cancellation surface immediately.
+    /// </summary>
     public async Task<LlmResponse> CompleteAsync(
         IReadOnlyList<ChatMessage> messages,
         IReadOnlyList<IGeniusTool> tools,
         CancellationToken cancellationToken)
     {
-        var payload = BuildPayload(messages, tools, _settings.Model);
-        using var request = new HttpRequestMessage(HttpMethod.Post, _settings.ChatCompletionsUrl);
-        request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {_settings.ApiKey}");
-        request.Content = new StringContent(payload.ToString(), Encoding.UTF8, "application/json");
-
-        using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
+        var payload = BuildPayload(messages, tools, _settings.Model).ToString();
+        for (var attempt = 1; ; attempt++)
         {
-            var snippet = body.Length > 400 ? body[..400] : body;
-            throw new LlmException($"LLM API {(int)response.StatusCode}: {snippet}");
-        }
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, _settings.ChatCompletionsUrl);
+                request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {_settings.ApiKey}");
+                request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
 
-        return ParseResponse(body);
+                using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                if (response.IsSuccessStatusCode)
+                {
+                    return ParseResponse(body);
+                }
+
+                var status = (int)response.StatusCode;
+                var retryable = status is 408 or 429 or >= 500;
+                if (!retryable || attempt >= MaxAttempts)
+                {
+                    var snippet = body.Length > 400 ? body[..400] : body;
+                    throw new LlmException($"LLM API {status}: {snippet}");
+                }
+            }
+            catch (HttpRequestException) when (attempt < MaxAttempts)
+            {
+            }
+            catch (HttpRequestException exception)
+            {
+                throw new LlmException($"LLM API unreachable: {exception.Message}");
+            }
+            catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (TaskCanceledException) when (attempt >= MaxAttempts)
+            {
+                // HttpClient timeout (not user cancellation), out of retries.
+                throw new LlmException($"LLM API timed out after {_settings.RequestTimeoutSeconds}s");
+            }
+            catch (TaskCanceledException)
+            {
+            }
+
+            await Task.Delay(RetryDelay * attempt, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     public static JObject BuildPayload(

@@ -24,7 +24,10 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
     }
 
     private readonly Dictionary<string, int> _collected = [];
+    private readonly HashSet<string> _seenBlockNames = [];
     private readonly TimedDigger _digger = new();
+    private readonly List<Candidate> _candidates = [];
+    private Point3 _scanCenter;
     private Phase _phase = Phase.Search;
     private Vector3? _startPosition;
     private Point3 _oreCell;
@@ -56,8 +59,11 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
                         return null;
                     }
 
+                    var suggestions = Agent.NameSuggest.Clause(query, _seenBlockNames);
                     return $"error: no blocks matching '{query}' within ~{SearchRadius}m " +
-                        $"(searched down to {SearchDepth} blocks below me)";
+                        $"(searched down to {SearchDepth} blocks below me){suggestions}" +
+                        "; names must match this game's own terms (this is not Minecraft) — " +
+                        "verify with query_recipes or query_help, or move me elsewhere and retry";
                 }
 
                 var toolCheck = CheckToolEfficiency(brain, found.Value);
@@ -174,19 +180,44 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
         }
     }
 
+    private readonly record struct Candidate(Point3 Cell, int Contents, bool IsOre);
+
+    /// <summary>
+    /// Nearest matching block, ore-preferred. The full box scan costs ~88k
+    /// cell reads on the main thread, so it runs once per area: results are
+    /// cached as a candidate list that later iterations pop from (revalidating
+    /// each pick against live terrain); a rescan happens only when the list
+    /// runs dry or the NPC has wandered far from the scanned center.
+    /// </summary>
+    private Point3? FindNearestMatch(ComponentGeniusBrain brain)
+    {
+        var center = Terrain.ToCell(brain.Creature.ComponentBody.Position);
+        if (_candidates.Count == 0 || MovedFarFromScan(center))
+        {
+            ScanForCandidates(brain, center);
+        }
+
+        return TakeNearestCandidate(brain, center);
+    }
+
+    private bool MovedFarFromScan(Point3 center)
+    {
+        var dx = center.X - _scanCenter.X;
+        var dy = center.Y - _scanCenter.Y;
+        var dz = center.Z - _scanCenter.Z;
+        return dx * dx + dy * dy + dz * dz > 16 * 16;
+    }
+
     /// <summary>
     /// If both natural ore blocks (name contains 矿/ore) and crafted blocks
     /// match the query, only the ore ones count — "煤" must never target the
     /// player's decorative coal blocks at home.
     /// </summary>
-    private Point3? FindNearestMatch(ComponentGeniusBrain brain)
+    private void ScanForCandidates(ComponentGeniusBrain brain, Point3 center)
     {
+        _candidates.Clear();
+        _scanCenter = center;
         var terrain = brain.SubsystemTerrain.Terrain;
-        var center = Terrain.ToCell(brain.Creature.ComponentBody.Position);
-        Point3? bestAny = null;
-        Point3? bestOre = null;
-        var bestAnyDistance = float.MaxValue;
-        var bestOreDistance = float.MaxValue;
         var matchKinds = new Dictionary<int, int>();
         for (var dx = -SearchRadius; dx <= SearchRadius; dx++)
         {
@@ -217,6 +248,7 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
                         var block = BlocksManager.Blocks[contents];
                         var displayName = block.GetDisplayName(brain.SubsystemTerrain, value);
                         var craftingId = block.GetCraftingId(value) ?? "";
+                        _seenBlockNames.Add(displayName);
                         var matches = displayName.Contains(query, StringComparison.OrdinalIgnoreCase)
                             || craftingId.Contains(query, StringComparison.OrdinalIgnoreCase);
                         var isOre = displayName.Contains('矿')
@@ -225,28 +257,57 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
                         matchKinds[contents] = kind;
                     }
 
-                    if (kind == 0)
+                    if (kind != 0)
                     {
-                        continue;
-                    }
-
-                    var distanceSquared = dx * dx + dy * dy * 4f + dz * dz;
-                    if (distanceSquared < bestAnyDistance)
-                    {
-                        bestAnyDistance = distanceSquared;
-                        bestAny = new Point3(center.X + dx, y, center.Z + dz);
-                    }
-
-                    if (kind == 2 && distanceSquared < bestOreDistance)
-                    {
-                        bestOreDistance = distanceSquared;
-                        bestOre = new Point3(center.X + dx, y, center.Z + dz);
+                        _candidates.Add(new Candidate(
+                            new Point3(center.X + dx, y, center.Z + dz), contents, kind == 2));
                     }
                 }
             }
         }
+    }
 
-        return bestOre ?? bestAny;
+    /// <summary>
+    /// Pops the best cached candidate: still-valid (terrain may have changed
+    /// since the scan), ore before non-ore, then nearest to where I stand now.
+    /// </summary>
+    private Point3? TakeNearestCandidate(ComponentGeniusBrain brain, Point3 center)
+    {
+        var terrain = brain.SubsystemTerrain.Terrain;
+        _candidates.RemoveAll(candidate =>
+            Terrain.ExtractContents(terrain.GetCellValue(
+                candidate.Cell.X, candidate.Cell.Y, candidate.Cell.Z)) != candidate.Contents);
+
+        var bestIndex = -1;
+        var bestDistance = float.MaxValue;
+        for (var i = 0; i < _candidates.Count; i++)
+        {
+            var candidate = _candidates[i];
+            if (bestIndex >= 0 && _candidates[bestIndex].IsOre && !candidate.IsOre)
+            {
+                continue;
+            }
+
+            var dx = candidate.Cell.X - center.X;
+            var dy = candidate.Cell.Y - center.Y;
+            var dz = candidate.Cell.Z - center.Z;
+            var distanceSquared = dx * dx + dy * dy * 4f + dz * dz;
+            var upgradeToOre = bestIndex >= 0 && candidate.IsOre && !_candidates[bestIndex].IsOre;
+            if (bestIndex < 0 || upgradeToOre || distanceSquared < bestDistance)
+            {
+                bestIndex = i;
+                bestDistance = distanceSquared;
+            }
+        }
+
+        if (bestIndex < 0)
+        {
+            return null;
+        }
+
+        var cell = _candidates[bestIndex].Cell;
+        _candidates.RemoveAt(bestIndex);
+        return cell;
     }
 
     /// <summary>

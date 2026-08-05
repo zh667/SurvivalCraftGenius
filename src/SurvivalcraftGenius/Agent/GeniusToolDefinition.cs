@@ -58,7 +58,7 @@ public static class ToolCatalog
             """));
         registry.Register(new GeniusToolDefinition(
             "follow_player",
-            "Start following the player continuously. Stays active until another movement tool is used.",
+            "Start following the player continuously. Ends when any new task order (goto/dig/craft/...) starts or teleport is used; call again to resume.",
             NoParameters));
         registry.Register(new GeniusToolDefinition(
             "dig_block",
@@ -135,7 +135,8 @@ public static class ToolCatalog
             "Chase and melee-attack the named creature until it dies or escapes. Cannot target the player.",
             """
             {"type":"object","properties":{
-              "target_name":{"type":"string","description":"Creature display name substring, e.g. wolf/狼."}},
+              "target_name":{"type":"string","description":"Creature display name substring, e.g. wolf/狼."},
+              "sneak":{"type":"boolean","description":"Sneak-approach from behind the target: silent footsteps, no jumping. REQUIRED for birds and other easily-startled animals (they flee on hearing normal steps within 8m or seeing a predator in front of them within 16m). Slower but the only way to reach them."}},
              "required":["target_name"]}
             """));
         registry.Register(new GeniusToolDefinition(
