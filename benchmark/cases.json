@@ -1,0 +1,145 @@
+[
+  {
+    "name": "mine_coal_with_count",
+    "user": "去挖5个煤回来",
+    "accept_tools": ["mine_resource"],
+    "expect_args": { "resource_name": ["煤", "煤矿"], "count": "5" }
+  },
+  {
+    "name": "smelt_not_craft_ingot",
+    "user": "帮我做3个铁锭",
+    "accept_tools": ["smelt", "query_recipes"],
+    "expect_args": { "item_name": ["铁锭"] }
+  },
+  {
+    "name": "smelt_ore_to_ingot",
+    "user": "把包里这些铁矿石炼成铁锭",
+    "accept_tools": ["smelt"],
+    "expect_args": { "item_name": ["铁锭"] }
+  },
+  {
+    "name": "craft_crafting_table",
+    "user": "做一个工作台",
+    "accept_tools": ["craft", "query_recipes"],
+    "expect_args": { "item_name": ["工作台"] }
+  },
+  {
+    "name": "goto_exact_coords",
+    "user": "到坐标 (120, 64, -40) 来",
+    "accept_tools": ["goto"],
+    "expect_args": { "x": "120", "y": "64", "z": "-40" }
+  },
+  {
+    "name": "goto_tunnel_through",
+    "user": "别绕路了,直接挖穿过来,坐标 (80, 40, 15)",
+    "accept_tools": ["goto"],
+    "expect_args": { "x": "80", "dig_through": "true" }
+  },
+  {
+    "name": "follow_me",
+    "user": "跟我走",
+    "accept_tools": ["follow_player"]
+  },
+  {
+    "name": "interrupted_mining_then_follow",
+    "history": [
+      { "role": "user", "content": "去挖点煤" },
+      { "role": "assistant", "content": "好,我这就去找煤矿。" }
+    ],
+    "user": "算了先别挖了,回来跟着我",
+    "accept_tools": ["follow_player"]
+  },
+  {
+    "name": "scan_when_asked_whats_nearby",
+    "user": "附近有什么?",
+    "accept_tools": ["scan_surroundings"]
+  },
+  {
+    "name": "inventory_check",
+    "user": "你包里现在有什么东西?",
+    "accept_tools": ["get_inventory"]
+  },
+  {
+    "name": "chitchat_uses_say",
+    "user": "你叫什么名字呀?",
+    "accept_tools": ["say"]
+  },
+  {
+    "name": "attack_named_target",
+    "user": "帮我干掉那只狼",
+    "accept_tools": ["attack", "scan_surroundings"],
+    "expect_args": {}
+  },
+  {
+    "name": "sneak_hunt_bird",
+    "user": "悄悄靠近那只鸟,别惊飞它,干掉它",
+    "accept_tools": ["attack"],
+    "expect_args": { "target_name": ["鸟"], "sneak": "true" }
+  },
+  {
+    "name": "take_planks_from_chest",
+    "user": "从 (10, 64, 20) 的箱子里拿10块木板",
+    "accept_tools": ["take_from_chest"],
+    "expect_args": { "x": "10", "y": "64", "z": "20", "item_name": ["木板"] }
+  },
+  {
+    "name": "put_coal_into_chest",
+    "user": "把煤都存进 (10, 64, 20) 那个箱子",
+    "accept_tools": ["put_into_chest"],
+    "expect_args": { "x": "10", "item_name": ["煤"] }
+  },
+  {
+    "name": "chest_without_coords_scans_first",
+    "user": "把包里的圆石都放进旁边的箱子里",
+    "accept_tools": ["scan_surroundings"]
+  },
+  {
+    "name": "give_all_ingots",
+    "user": "把你身上的铁锭都给我",
+    "accept_tools": ["give_to_player"],
+    "expect_args": { "item_name": ["铁锭"] }
+  },
+  {
+    "name": "collect_ground_drops",
+    "user": "把地上掉的东西捡一捡",
+    "accept_tools": ["collect_items"]
+  },
+  {
+    "name": "recipe_trap_stone_pick",
+    "user": "石镐怎么做?",
+    "accept_tools": ["query_recipes"],
+    "expect_args": { "item_name": ["镐"] }
+  },
+  {
+    "name": "hunting_tips_reads_knowledge",
+    "user": "打猎有什么技巧吗?",
+    "accept_tools": ["read_knowledge", "query_help"]
+  },
+  {
+    "name": "teleport_to_home_waypoint",
+    "user": "传送回'家'那个路标",
+    "accept_tools": ["teleport"],
+    "expect_args": { "waypoint_name": ["家"] }
+  },
+  {
+    "name": "list_saved_waypoints",
+    "user": "地图上都存了哪些路标?",
+    "accept_tools": ["list_waypoints"]
+  },
+  {
+    "name": "dig_single_block",
+    "user": "把 (5, 70, 8) 那个方块挖掉",
+    "accept_tools": ["dig_block"],
+    "expect_args": { "x": "5", "y": "70", "z": "8" }
+  },
+  {
+    "name": "place_block_needs_slot",
+    "user": "在 (5, 70, 8) 放一块圆石",
+    "accept_tools": ["place_block", "get_inventory"]
+  },
+  {
+    "name": "no_eat_tool_honest_refusal",
+    "user": "你饿不饿?吃点东西吧",
+    "accept_tools": ["say"]
+  }
+]
