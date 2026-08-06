@@ -1,6 +1,7 @@
 using SurvivalcraftGenius.Agent;
 using Engine;
 using Game;
+using Game.NetWork;
 using GameEntitySystem;
 using TemplatesDatabase;
 
@@ -72,6 +73,13 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     /// </summary>
     public LandmarkMemory? Landmarks { get; set; }
 
+    /// <summary>
+    /// PlayerGUID ("N" format) of the player who summoned this NPC; empty =
+    /// unowned (legacy single-player worlds). In multiplayer each player only
+    /// commands their own companion. Persisted with the entity.
+    /// </summary>
+    public string OwnerPlayerId { get; set; } = "";
+
     /// <summary>Self-preservation reflexes that outbid orders for the body.</summary>
     public GeniusInstincts Instincts { get; } = new();
 
@@ -107,6 +115,14 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
 
     public void Update(float dt)
     {
+        if (CommonLib.WorkType == WorkType.Client)
+        {
+            // Replicated shell: entity templates arrive on clients with every
+            // component constructed and ticked. The server owns simulation;
+            // the body's position flows in via the engine's body sync.
+            return;
+        }
+
         Expedition.Tick(this);
         UpdateCore(dt);
         // Instincts run last so their movement overrides whatever the order
@@ -193,6 +209,7 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     public override void Load(ValuesDictionary valuesDictionary, IdToEntityMap idToEntityMap)
     {
         base.Load(valuesDictionary, idToEntityMap);
+        OwnerPlayerId = valuesDictionary.GetValue("OwnerPlayerId", "");
         m_subsystemTerrain = Project.FindSubsystem<SubsystemTerrain>(throwOnError: true);
         m_subsystemTime = Project.FindSubsystem<SubsystemTime>(throwOnError: true);
         m_subsystemBodies = Project.FindSubsystem<SubsystemBodies>(throwOnError: true);
@@ -212,8 +229,23 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         base.OnEntityAdded();
     }
 
+    public override void Save(ValuesDictionary valuesDictionary, EntityToIdMap entityToIdMap)
+    {
+        base.Save(valuesDictionary, entityToIdMap);
+        if (OwnerPlayerId.Length > 0)
+        {
+            valuesDictionary.SetValue("OwnerPlayerId", OwnerPlayerId);
+        }
+    }
+
     public override void OnEntityRemoved()
     {
+        if (CommonLib.WorkType == WorkType.Client)
+        {
+            base.OnEntityRemoved();
+            return;
+        }
+
         var died = m_componentCreature.ComponentHealth.Health <= 0f;
         Engine.Log.Information(
             $"[Genius] NPC entity removed from project (pos={m_componentCreature.ComponentBody.Position}, " +

@@ -119,7 +119,15 @@ src/SurvivalcraftGenius/
       (鸟的视觉只有正面半球 16m)+ 潜行禁跳;鸟类狩猎机制为引擎实测(受惊三条件:正面视觉/
       ≥0.25 噪音·脚步 8m·跳跃 10m/碰撞),NPC Category=LandOther 在鸟眼里算捕食者,
       而食草动物"躲人"行为只认玩家、不躲 NPC——已写进《战斗与狩猎》知识文件
-- [ ] 联机(netmod)支持:多人世界中归属、权限与同步
+- [x] 联机(netmod)支持(2026-08-06,代码完成,待双端实机验证):客户端大脑/服务端身体架构——
+      LLM 循环、对话记忆、API key 全在客户端;单一 GeniusToolPackage(ID 219)中转
+      (工具名, 参数JSON)→结果串,覆盖全部 22 工具 + 召唤/召回;身份只信包的 From(防伪造),
+      结果按 (PlayerGuid, TokenId) 在完成时重新绑定客户端(防 byte ID 复用错投);
+      NPC 带 OwnerPlayerId 归属(持久化,他人不可指挥);客户端上的复制实体禁跑模拟;
+      say/query_recipes/query_help/read_knowledge/list_waypoints 客户端本地执行,
+      路标传送在客户端先解析坐标(TravelMap 数据在设备端);世界类工具全部服务端执行
+      (客户端地形有反矿透伪造,必须以服务端为准)。已知限制:客户端的地标记忆不自动采集
+      (采集发生在服务端)、状态 HUD 只显示"思考中"
 - [ ] 多语言(沿用 SCTM 的 Lang 资源体系)
 
 ## 风险与预案

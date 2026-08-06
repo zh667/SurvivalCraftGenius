@@ -32,6 +32,9 @@ public sealed class GeniusModLoader : ModLoader
 
     public override void __ModInitialize()
     {
+        // Manual registration is mandatory: the game's auto-registration of
+        // mod packages never fires (IsSubclassOf on an interface).
+        GeniusNetwork.TryRegisterPackage();
         var version = typeof(GeniusModLoader).Assembly.GetName().Version?.ToString(3) ?? "?";
         Engine.Log.Information($"[Genius] Mod initialized (v{version}).");
     }
