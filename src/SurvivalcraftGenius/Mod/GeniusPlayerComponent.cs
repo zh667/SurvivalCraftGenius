@@ -52,6 +52,8 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     private double _nextContextUpdateTime;
     private readonly ConcurrentDictionary<uint, TaskCompletionSource<string>> _pendingNetTools = new();
     private int _nextNetRequestId;
+    private double _autoResumeDeadline;
+    private bool _autoResumeChecked;
     private LlmClient? _llmClient;
     private GeniusAgent? _agent;
     private GeniusChatDialog? _dialog;
@@ -119,6 +121,19 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         if (input.IsKeyDownOnce(Engine.Input.Key.G) && _dialog is null)
         {
             OpenChatDialog();
+        }
+
+        // After a death/respawn (or world reload) with work cut mid-flight,
+        // nudge the fresh agent to pick the thread back up instead of
+        // standing idle until spoken to (playtest 2: "守护灵直接停止了").
+        if (_autoResumeDeadline == 0.0)
+        {
+            _autoResumeDeadline = Time.FrameStartTime + 2.0;
+        }
+        else if (!_autoResumeChecked && Time.FrameStartTime >= _autoResumeDeadline)
+        {
+            _autoResumeChecked = true;
+            TryAutoResumeInterruptedWork();
         }
 
         UpdateStatusHud();
@@ -363,6 +378,40 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         base.OnEntityRemoved();
     }
 
+    /// <summary>
+    /// Runs once ~2s after this component comes alive (main player only, so
+    /// never on the server's copies for remote players). Resumes only when
+    /// something was genuinely interrupted: the NPC still runs an order, or
+    /// the persisted conversation ends mid-turn (last entry not a finished
+    /// assistant reply). A clean previous session stays silent and free.
+    /// </summary>
+    private void TryAutoResumeInterruptedWork()
+    {
+        if (!_settings.IsConfigured || _agent is not null)
+        {
+            return;
+        }
+
+        var memory = LoadPersistedMemory();
+        var last = memory.Messages?.LastOrDefault();
+        var orderActive = FindBrain()?.CurrentOrderLabel is not null;
+        if (!orderActive && (last is null || last.Role == "assistant"))
+        {
+            return;
+        }
+
+        EnsureAgent();
+        if (_agent is null)
+        {
+            return;
+        }
+
+        Log.Information("[Genius] Auto-resuming interrupted work after respawn/reload.");
+        StartOrQueueTurn(
+            "(system: 会话因玩家死亡重生或重新进入世界而重启。结合上文和 <world_state>:" +
+            "若有未完成的任务,继续推进或重新下达行动工具;若确实无事可做,用 say 一句话告知玩家你已就绪即可)");
+    }
+
     /// <summary>Client-side summon/dismiss go through the tool relay.</summary>
     private void RequestRemoteOp(string op, string label)
     {
@@ -508,6 +557,12 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             else if (brain.IsFollowing)
             {
                 lines.Add("我正在跟随玩家");
+            }
+
+            var surfaceY = m_subsystemTerrain.Terrain.GetTopHeight(npc.X, npc.Z);
+            if (npc.Y < surfaceY - 2)
+            {
+                lines.Add($"注意:我在地下(地表 y={surfaceY})——地表活动(打猎/找动物)需先上去");
             }
         }
         else
@@ -853,9 +908,34 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 }
 
                 brain.StopMoving();
-                brain.Creature.ComponentBody.Position = destination + new Vector3(0f, 0.5f, 0f);
                 var destCell = Terrain.ToCell(destination);
-                var loaded = brain.SubsystemTerrain.Terrain.GetChunkAtCell(destCell.X, destCell.Z) is not null;
+                var terrain = brain.SubsystemTerrain.Terrain;
+                var loaded = terrain.GetChunkAtCell(destCell.X, destCell.Z) is not null;
+                if (loaded)
+                {
+                    // Landing guard: the model guesses Y over unseen terrain —
+                    // playtest 2 ended with a fatal fall at a guessed y=70.
+                    // Keep deliberate cave targets (air pocket with ground
+                    // close below); snap everything else to the surface.
+                    var top = terrain.GetTopHeight(destCell.X, destCell.Z);
+                    var feetFree = !BlocksManager.Blocks[Terrain.ExtractContents(
+                        terrain.GetCellValue(destCell.X, destCell.Y, destCell.Z))].IsCollidable;
+                    var headFree = !BlocksManager.Blocks[Terrain.ExtractContents(
+                        terrain.GetCellValue(destCell.X, destCell.Y + 1, destCell.Z))].IsCollidable;
+                    var groundNear = false;
+                    for (var below = 1; below <= 3 && !groundNear; below++)
+                    {
+                        groundNear = BlocksManager.Blocks[Terrain.ExtractContents(
+                            terrain.GetCellValue(destCell.X, destCell.Y - below, destCell.Z))].IsCollidable;
+                    }
+
+                    if (!feetFree || !headFree || !groundNear)
+                    {
+                        destination = new Vector3(destCell.X + 0.5f, top + 1, destCell.Z + 0.5f);
+                    }
+                }
+
+                brain.Creature.ComponentBody.Position = destination + new Vector3(0f, 0.5f, 0f);
                 return Task.FromResult(
                     $"teleported to ({(int)destination.X}, {(int)destination.Y}, {(int)destination.Z})" +
                     (loaded

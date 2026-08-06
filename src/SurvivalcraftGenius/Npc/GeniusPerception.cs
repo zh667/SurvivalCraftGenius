@@ -194,6 +194,19 @@ public static class GeniusPerception
             myStatus["instinct_active"] = instinct;
         }
 
+        // Underground awareness: without this the model wandered a cave for
+        // minutes "looking for animals" (playtest 2 lesson) — it simply did
+        // not know a surface existed above.
+        var surfaceY = terrain.GetTopHeight(centerCell.X, centerCell.Z);
+        if (centerCell.Y < surfaceY - 2)
+        {
+            myStatus["underground"] = true;
+            myStatus["surface_y"] = surfaceY;
+            myStatus["note_underground"] =
+                $"我在地下(头顶地表在 y={surfaceY});打猎/找动物/看天气都必须先上到地表," +
+                "可用 goto 到地表坐标(dig_through=true 可挖竖井上去)";
+        }
+
         var result = new JObject
         {
             ["my_pos"] = PointArray(centerCell),

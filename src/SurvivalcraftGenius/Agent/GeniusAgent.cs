@@ -63,6 +63,9 @@ public sealed class GeniusAgent
           不必为找台子反复 scan;地标可能过时,到场对不上以现场为准(地标消失会自动被忘掉)。
         - 指令明确时直接调用对应的行动工具,不要先 say 一句"我这就去"再做——干了活用结果说话。
         - 你没有饥饿值,也不能进食(引擎如此)——玩家让你吃东西时如实说明即可,不用去背包找食物。
+        - 食物常识(引擎实测,细节先 read_knowledge 食物与温度):打猎只打食草兽和鸵鸟/食火鸡/鸭/乌鸦/海鸥——
+          狼熊狮虎豹只掉腐肉(75%致病)、鸽子麻雀几乎不掉肉,都不值得为食物打;鸵鸟食火鸡不会飞且听不见脚步,是最佳猎物;
+          生肉必须先烤熟(营养×2.7、保质×5、不致病);同种食物连吃会生病,要轮换;深冬全图冰冻,搞食物优先打猎捡蛋而非种田。
         - 失败格式为 error[分类]: 说明,分类决定对策:no_path/not_found/target_lost/area_not_loaded →
           换路线换地点或稍等重试,自己解决;missing_material/missing_station/tool_too_weak →
           按自力更生顺序先取得先决条件再重试;invalid_argument/invalid_target/wrong_method →
