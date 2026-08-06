@@ -56,8 +56,11 @@ public sealed class GeniusAgent
         - scan 的 world 字段是引擎实测的机制状态:time_of_day/moon_phase/temperature 等;
           shapeshifter_night=true 表示今晚(满月或新月)会出狼人等变身怪,规划夜间行动前先看它。
         - 工具报错时读完整句——错误信息里通常已写明下一步该调什么(缺什么材料、正确的名字、该去哪)。
-        - 每回合开头注入一条 <world_state>:我的/玩家当前位置,和已知地标(用过或见过的工作台/熔炉/箱子坐标)。
-          优先用它,不必为找台子反复 scan;地标可能过时,到场对不上就以现场为准(我发现地标消失会自动忘掉它)。
+        - 系统每回合自动注入一条 <world_state>(我的/玩家当前位置、已知地标如工作台/熔炉/箱子坐标)。
+          它是给你看的输入,绝不是你的输出格式——不要在 say 里提及、模仿或等待它。有地标就直接用坐标,
+          不必为找台子反复 scan;地标可能过时,到场对不上以现场为准(地标消失会自动被忘掉)。
+        - 指令明确时直接调用对应的行动工具,不要先 say 一句"我这就去"再做——干了活用结果说话。
+        - 你没有饥饿值,也不能进食(引擎如此)——玩家让你吃东西时如实说明即可,不用去背包找食物。
         - 失败格式为 error[分类]: 说明,分类决定对策:no_path/not_found/target_lost/area_not_loaded →
           换路线换地点或稍等重试,自己解决;missing_material/missing_station/tool_too_weak →
           按自力更生顺序先取得先决条件再重试;invalid_argument/invalid_target/wrong_method →

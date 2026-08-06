@@ -1,0 +1,4 @@
+timestamp,provider,model,samples,cases,selection,pass_at_k,args_valid,args_match
+2026-08-06 11:32:35,cc.midlight.top,gpt-5.4-mini,3,25,22.7%,28.0%,100.0%,22.7%
+2026-08-06 11:34:55,cc.midlight.top,gpt-5.4-mini,3,25,72.0%,80.0%,100.0%,72.0%
+2026-08-06 11:36:45,cc.midlight.top,gpt-5.4-mini,3,25,86.7%,96.0%,100.0%,85.3%
