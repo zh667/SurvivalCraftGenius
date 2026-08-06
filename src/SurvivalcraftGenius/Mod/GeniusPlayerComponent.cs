@@ -50,6 +50,8 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     private bool _landmarksRestored;
     private volatile string? _turnContextCache;
     private double _nextContextUpdateTime;
+    private readonly ConcurrentDictionary<uint, TaskCompletionSource<string>> _pendingNetTools = new();
+    private int _nextNetRequestId;
     private LlmClient? _llmClient;
     private GeniusAgent? _agent;
     private GeniusChatDialog? _dialog;
@@ -232,8 +234,8 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     {
         if (_workType == WorkType.Client)
         {
-            AppendLog(GeniusChatRole.Info,
-                "当前是联机客户端模式:实体必须由服务端生成,暂不支持召唤(联机支持在路线图 M4)。请在本地单机世界使用。");
+            // M4: entities are server-authoritative — relay the request.
+            RequestRemoteOp(GeniusNetwork.SummonOp, "召唤");
             return;
         }
 
@@ -246,6 +248,14 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         try
         {
             var entity = DatabaseManager.CreateEntity(Project, NpcTemplateName, throwIfNotFound: true);
+            // Ownership: in multiplayer each player commands only their own
+            // companion; FindBrain filters on this.
+            var newBrain = entity.FindComponent<ComponentGeniusBrain>(throwOnError: false);
+            if (newBrain is not null)
+            {
+                newBrain.OwnerPlayerId = m_componentPlayer.PlayerData.PlayerGUID.ToString("N");
+            }
+
             var body = entity.FindComponent<ComponentBody>(throwOnError: true)!;
             var playerBody = m_componentPlayer.ComponentBody;
             var spawnPosition = FindSpawnPositionNear(playerBody);
@@ -293,6 +303,12 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
 
     public void DismissNpc()
     {
+        if (_workType == WorkType.Client)
+        {
+            RequestRemoteOp(GeniusNetwork.DismissOp, "召回");
+            return;
+        }
+
         var brain = FindBrain();
         if (brain is null)
         {
@@ -347,10 +363,31 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         base.OnEntityRemoved();
     }
 
+    /// <summary>Client-side summon/dismiss go through the tool relay.</summary>
+    private void RequestRemoteOp(string op, string label)
+    {
+        if (!GeniusNetwork.PackageRegistered)
+        {
+            AppendLog(GeniusChatRole.Info, "联机中转不可用(网络包 ID 被其他模组占用),此客户端无法使用同伴。");
+            return;
+        }
+
+        AppendLog(GeniusChatRole.Info, $"已向服务器请求{label}…");
+        _ = ExecuteToolOverNetworkAsync(op, []).ContinueWith(task =>
+            _mainThreadQueue.Enqueue(() =>
+                AppendLog(GeniusChatRole.Info, $"{label}:{Truncate(task.Result, 120)}")));
+    }
+
     public override void Dispose()
     {
         _lifetime.Cancel();
         _llmClient?.Dispose();
+        foreach (var pending in _pendingNetTools.Values)
+        {
+            pending.TrySetResult(GeniusFailure.Format(FailureType.Unavailable, "session ended before the server replied"));
+        }
+
+        _pendingNetTools.Clear();
         lock (_failureCounts)
         {
             if (_failureCounts.Count > 0)
@@ -515,9 +552,10 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     }
 
     /// <summary>
-    /// Runs on the agent's background thread. Parses arguments there, then hops
-    /// onto the game thread to touch game state; long-running orders complete
-    /// later via their TaskCompletionSource.
+    /// Runs on the agent's background thread. Parses arguments there, then
+    /// either hops onto the game thread (authoritative side) or relays over
+    /// the network (multiplayer client); long-running orders complete later
+    /// via their TaskCompletionSource either way.
     /// </summary>
     private Task<string> ExecuteToolAsync(string name, string argumentsJson)
     {
@@ -532,20 +570,10 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         }
 
         Log.Information($"[Genius] tool {name} {Truncate(argumentsJson, 160)}");
-        var completion = new TaskCompletionSource<Task<string>>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        _mainThreadQueue.Enqueue(() =>
-        {
-            try
-            {
-                completion.TrySetResult(ExecuteToolOnMainThread(name, arguments));
-            }
-            catch (Exception exception)
-            {
-                completion.TrySetResult(Task.FromResult($"error[internal]: {exception.Message}"));
-            }
-        });
-        return completion.Task.Unwrap().ContinueWith(task =>
+        var work = _workType == WorkType.Client && !GeniusNetwork.IsClientLocalTool(name)
+            ? ExecuteToolOverNetworkAsync(name, arguments)
+            : ExecuteToolLocallyAsync(name, arguments);
+        return work.ContinueWith(task =>
         {
             var result = task.IsFaulted
                 ? $"error[internal]: {task.Exception?.GetBaseException().Message}"
@@ -563,7 +591,9 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             }
             // If the owning turn was cancelled, the model never sees this
             // result — surface it in chat so the player still gets the outcome.
-            if (LongRunningTools.Contains(name) && _agent?.IsBusy != true)
+            // (The agent-null check keeps the server's copy for remote players
+            // from logging into a chat nobody reads.)
+            if (LongRunningTools.Contains(name) && _agent is { IsBusy: false })
             {
                 _mainThreadQueue.Enqueue(
                     () => AppendLog(GeniusChatRole.Info, $"(后台完成) {name}: {Truncate(result, 140)}"));
@@ -571,6 +601,105 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
 
             return result;
         });
+    }
+
+    private Task<string> ExecuteToolLocallyAsync(string name, JObject arguments)
+    {
+        var completion = new TaskCompletionSource<Task<string>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        _mainThreadQueue.Enqueue(() =>
+        {
+            try
+            {
+                completion.TrySetResult(ExecuteToolOnMainThread(name, arguments));
+            }
+            catch (Exception exception)
+            {
+                completion.TrySetResult(Task.FromResult($"error[internal]: {exception.Message}"));
+            }
+        });
+        return completion.Task.Unwrap();
+    }
+
+    /// <summary>
+    /// Multiplayer client: relay the call to the server, which executes it
+    /// against this player's companion and replies. The wait is bounded by the
+    /// agent's per-tool timeouts and failed wholesale on dispose.
+    /// </summary>
+    private Task<string> ExecuteToolOverNetworkAsync(string name, JObject arguments)
+    {
+        if (!GeniusNetwork.PackageRegistered)
+        {
+            return Task.FromResult(GeniusFailure.Format(FailureType.Unavailable,
+                "multiplayer relay unavailable on this install (network package ID conflict)"));
+        }
+
+        // TravelMap waypoints live on THIS device — resolve before the wire.
+        if (name == "teleport" && (string?)arguments["waypoint_name"] is { Length: > 0 } waypointName)
+        {
+            var waypoints = TravelMapBridge.TryReadWaypoints(m_componentPlayer);
+            var match = waypoints?.FirstOrDefault(waypoint =>
+                waypoint.Name.Contains(waypointName, StringComparison.OrdinalIgnoreCase));
+            if (match is null)
+            {
+                return Task.FromResult(GeniusFailure.Format(FailureType.NotFound,
+                    $"no waypoint matching '{waypointName}'"));
+            }
+
+            arguments = new JObject
+            {
+                ["x"] = (int)match.Position.X,
+                ["y"] = (int)match.Position.Y,
+                ["z"] = (int)match.Position.Z,
+            };
+        }
+
+        var requestId = (uint)Interlocked.Increment(ref _nextNetRequestId);
+        var pending = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingNetTools[requestId] = pending;
+        var payload = arguments.ToString(Newtonsoft.Json.Formatting.None);
+        _mainThreadQueue.Enqueue(() => CommonLib.Net.QueuePackage(new GeniusToolPackage(
+            new GeniusToolMessage(GeniusToolMessageKind.Request, requestId, name, payload))));
+        return pending.Task;
+    }
+
+    /// <summary>Called from the package handler when the server's result lands.</summary>
+    public void CompleteNetTool(uint requestId, string result)
+    {
+        if (_pendingNetTools.TryRemove(requestId, out var pending))
+        {
+            pending.TrySetResult(result);
+        }
+    }
+
+    /// <summary>Marshals arbitrary work onto this component's game-thread queue.</summary>
+    public void RunOnMainThread(Action action) => _mainThreadQueue.Enqueue(action);
+
+    /// <summary>Server-side entry for a remote client's relayed request.</summary>
+    public Task<string> ExecuteNetToolAsync(string name, string payload)
+    {
+        switch (name)
+        {
+            case GeniusNetwork.SummonOp:
+                return OnMainThread(() =>
+                {
+                    SummonNpc();
+                    return IsNpcSummoned
+                        ? "summoned"
+                        : GeniusFailure.Format(FailureType.Internal, "summon failed (see server log)");
+                });
+            case GeniusNetwork.DismissOp:
+                return OnMainThread(() =>
+                {
+                    DismissNpc();
+                    return "dismissed";
+                });
+            default:
+                return GeniusNetwork.IsClientLocalTool(name)
+                    ? Task.FromResult(GeniusFailure.Format(FailureType.InvalidArgument,
+                        "client-local tool relayed to the server"))
+                    : ExecuteToolAsync(name, payload);
+        }
     }
 
     private static readonly HashSet<string> LongRunningTools = new(StringComparer.Ordinal)
@@ -999,11 +1128,19 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         ComponentGeniusBrain? nearest = null;
         var nearestDistance = float.MaxValue;
         var count = 0;
+        var myPlayerId = m_componentPlayer.PlayerData.PlayerGUID.ToString("N");
         foreach (var body in m_subsystemBodies.Bodies)
         {
             var brain = body.Entity.FindComponent<ComponentGeniusBrain>();
             if (brain is null
                 || body.Entity.FindComponent<ComponentSpawn>() is { IsDespawning: true })
+            {
+                continue;
+            }
+
+            // Owned by someone else → invisible to me (empty = legacy/unowned).
+            if (brain.OwnerPlayerId.Length > 0
+                && !string.Equals(brain.OwnerPlayerId, myPlayerId, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }

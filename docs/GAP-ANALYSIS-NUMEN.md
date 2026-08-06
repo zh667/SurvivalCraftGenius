@@ -116,7 +116,14 @@ Genius:16 commits 挤在两天、约 1/3 代码(含整个 Nav/ A\*)未提交、�
       半径 4–16 参数;22 工具;+6 渲染测试(95/95);bench 加 2 个 scan/look 分流用例
       (双双 3/3),prompt 感知分工 + "已确认目标直接行动";bench 五行曲线:
       22.7→72.0→86.7→(加新用例回撤 77.8,系 prompt 丢限定词回归,已修)→82.7,pass@3 92.6
-- [ ] D. 联机 M4
+- [x] D. 联机 M4(第八轮,代码完成,**必须双端 Windows 实机验证后才算落地**):
+      Numen 同款"客户端大脑/服务端身体"。协议=单一 GeniusToolPackage(ID 219,避开原版
+      0-40/56-59/250-253、SCTM 41/217、反作弊 61),自定界编码(纯 BinaryWriter,Linux 可测);
+      手动 PackageManager.RegisterPackage(游戏的 mod 包自动注册是死代码)+ try/catch 降级;
+      服务端只信 From 定身份,完成时按 (PlayerGuid,TokenId) 重绑客户端;NPC OwnerPlayerId
+      归属过滤(FindBrain 只见自己的);brain/OnEntityRemoved 客户端禁跑(实体模板全组件
+      复制到客户端并被 tick——侦察确认);mod 列表 MD5 强一致(服务器自动下发)保证两端同版本。
+      +5 编解码测试(100/100)
 
 ### 状态跟踪(2026-08-05 第一轮修复)
 
