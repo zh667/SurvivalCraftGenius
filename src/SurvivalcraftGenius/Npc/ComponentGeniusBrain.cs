@@ -344,16 +344,19 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
 
     public string? CurrentOrderLabel => _order?.GetType().Name;
 
-    /// <summary>On death, drop everything carried so the player can recover it.</summary>
-    private void SpillInventoryIfDead()
+    /// <summary>
+    /// Drops everything carried onto the ground. Called on death AND on
+    /// dismissal — despawning used to silently destroy the inventory
+    /// (playtest 4: wood and stone vanished after a 收回/重新召唤 cycle).
+    /// </summary>
+    public bool SpillInventory()
     {
-        if (m_componentCreature.ComponentHealth.Health > 0f
-            || m_componentMiner.Inventory is not { } inventory)
+        if (m_componentMiner.Inventory is not { } inventory)
         {
-            return;
+            return false;
         }
 
-        DeathPosition = m_componentCreature.ComponentBody.Position;
+        var spilled = false;
         var position = m_componentCreature.ComponentBody.Position + new Vector3(0f, 0.5f, 0f);
         for (var slot = 0; slot < inventory.SlotsCount; slot++)
         {
@@ -363,7 +366,20 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
             {
                 m_subsystemPickables.AddPickable(value, count, position, null, null);
                 inventory.RemoveSlotItems(slot, count);
+                spilled = true;
             }
+        }
+
+        return spilled;
+    }
+
+    /// <summary>On death, drop everything carried so the player can recover it.</summary>
+    private void SpillInventoryIfDead()
+    {
+        if (m_componentCreature.ComponentHealth.Health <= 0f)
+        {
+            DeathPosition = m_componentCreature.ComponentBody.Position;
+            SpillInventory();
         }
     }
 }

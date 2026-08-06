@@ -332,8 +332,11 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         }
 
         brain.StopMoving();
+        var spilled = brain.SpillInventory();
         brain.Creature.ComponentSpawn.Despawn();
-        AppendLog(GeniusChatRole.Info, "Genius 已收回。");
+        AppendLog(GeniusChatRole.Info, spilled
+            ? "Genius 已收回(它把背包里的东西倒在了原地,记得捡)。"
+            : "Genius 已收回。");
     }
 
     public void SaveSettings(GeniusSettings settings)
