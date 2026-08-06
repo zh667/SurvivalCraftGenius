@@ -13,7 +13,7 @@ public class ToolCatalogTests
 
         string[] expected =
         [
-            "say", "scan_surroundings", "goto", "follow_player", "dig_block",
+            "say", "scan_surroundings", "look_around", "goto", "follow_player", "dig_block",
             "place_block", "get_inventory", "collect_items", "take_from_chest",
             "put_into_chest", "craft", "smelt", "give_to_player", "equip_tool", "attack", "mine_resource",
             "list_waypoints", "teleport", "query_recipes", "query_help", "read_knowledge",
