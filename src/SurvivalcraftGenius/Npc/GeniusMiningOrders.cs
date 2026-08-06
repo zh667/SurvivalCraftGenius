@@ -347,8 +347,11 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
     }
 
     /// <summary>
-    /// Refuses to grind for minutes with bare hands: if the best tool still
-    /// needs more than ~6s per block, ask for/craft a proper pick first.
+    /// Refuses only truly hopeless grinds. The threshold sits ABOVE bare-hand
+    /// granite (14s) on purpose: digging one granite bare-handed IS the
+    /// engine's intended tool bootstrap — a 6s gate deadlocked it in playtest
+    /// 4 ("need a tool to get the stone to make the tool"). Bare-hand iron or
+    /// diamond ore (22s) still gets refused with the bootstrap lesson.
     /// </summary>
     private static string? CheckToolEfficiency(ComponentGeniusBrain brain, Point3 cell)
     {
@@ -356,7 +359,7 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
         TimedDigger.EquipBestToolFor(brain, cellValue);
         var digTime = brain.Miner.CalculateDigTime(
             cellValue, Terrain.ExtractContents(brain.Miner.ActiveBlockValue));
-        if (digTime <= 6f)
+        if (digTime <= 16f)
         {
             return null;
         }
