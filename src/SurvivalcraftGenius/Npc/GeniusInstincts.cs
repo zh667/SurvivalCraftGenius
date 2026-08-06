@@ -7,19 +7,44 @@ namespace SurvivalcraftGenius.Npc;
 /// Hard-wired self-preservation that outbids the LLM (Numen's rule: the model
 /// is the lowest bidder for the body). Runs at the end of every brain update,
 /// so when an instinct fires its movement overrides whatever the current
-/// order requested this frame: lava escape, drowning ascent, fire dousing.
-/// The system prompt carries a one-line self-description of each, so the
-/// model knows these are handled and never needs to micro-manage them.
+/// order requested this frame: lava escape, drowning ascent, fire dousing,
+/// and fighting back when attacked (Numen's MobDefenseChain). The system
+/// prompt carries a one-line self-description of each, so the model knows
+/// these are handled and never needs to micro-manage them.
 /// </summary>
 public sealed class GeniusInstincts
 {
+    private const float EngageSeconds = 12f;
+    private const float DisengageRange = 20f;
+    private const float StrikeRange = 2.2f;
+    private const float MinHealthToFight = 0.3f;
+
     private Point3? _lastSafeCell;
     private double _nextSafeCellTime;
     private double _nextWaterScanTime;
     private Point3? _waterCell;
+    private ComponentCreature? _attacker;
+    private float _engageRemaining;
+    private double _nextStrikePathTime;
 
     /// <summary>Human-readable label of the instinct currently overriding the body, if any.</summary>
     public string? ActiveInstinct { get; private set; }
+
+    /// <summary>
+    /// Wired to ComponentHealth.Attacked (same hook vanilla creatures use).
+    /// Players are never counterattacked; a fresh hit re-arms the window and
+    /// retargets to the latest aggressor.
+    /// </summary>
+    public void NotifyAttacked(ComponentCreature? attacker)
+    {
+        if (attacker is null or ComponentPlayer)
+        {
+            return;
+        }
+
+        _attacker = attacker;
+        _engageRemaining = EngageSeconds;
+    }
 
     public void Tick(ComponentGeniusBrain brain, float dt)
     {
@@ -74,6 +99,31 @@ public sealed class GeniusInstincts
             _waterCell = null;
         }
 
+        // 4. Fight back: something hit me. Survival instincts above always win
+        // (no brawling while drowning); nearly dead → disengage and leave the
+        // body to the engine's flee behavior.
+        if (_attacker is { } attacker)
+        {
+            _engageRemaining -= dt;
+            var gone = attacker.ComponentHealth.Health <= 0f
+                || attacker.ComponentBody.Entity.Project is null;
+            if (gone
+                || _engageRemaining <= 0f
+                || health is null
+                || health.Health < MinHealthToFight
+                || Vector3.Distance(position, attacker.ComponentBody.Position) > DisengageRange)
+            {
+                _attacker = null;
+                creature.ComponentCreatureModel.AttackOrder = false;
+            }
+            else
+            {
+                FightBack(brain, attacker, position);
+                ActiveInstinct = $"fighting back at {attacker.DisplayName}";
+                return;
+            }
+        }
+
         ActiveInstinct = null;
 
         // Remember safe footing: solid ground, head in air, not burning.
@@ -85,6 +135,39 @@ public sealed class GeniusInstincts
         {
             _nextSafeCellTime = brain.m_subsystemTime.GameTime + 0.5;
             _lastSafeCell = feetCell;
+        }
+    }
+
+    /// <summary>Same melee core as AttackOrder: close in, swing on the hit moment.</summary>
+    private void FightBack(ComponentGeniusBrain brain, ComponentCreature attacker, Vector3 myPosition)
+    {
+        var model = brain.Creature.ComponentCreatureModel;
+        var targetPosition = attacker.ComponentBody.Position;
+        model.LookAtOrder = attacker.ComponentCreatureModel.EyePosition;
+        if (Vector3.Distance(myPosition, targetPosition) <= StrikeRange)
+        {
+            brain.m_componentPathfinding.Stop();
+            model.AttackOrder = true;
+            if (model.IsAttackHitMoment)
+            {
+                var direction = Vector3.Normalize(targetPosition - myPosition);
+                brain.Miner.Hit(
+                    attacker.ComponentBody,
+                    targetPosition + new Vector3(0f, 1f, 0f),
+                    direction);
+            }
+
+            return;
+        }
+
+        model.AttackOrder = false;
+        if (brain.m_subsystemTime.GameTime >= _nextStrikePathTime)
+        {
+            _nextStrikePathTime = brain.m_subsystemTime.GameTime + 0.4;
+            brain.m_componentPathfinding.SetDestination(
+                targetPosition, 1f, 1.5f, 2000,
+                useRandomMovements: true, ignoreHeightDifference: false,
+                raycastDestination: false, attacker.ComponentBody);
         }
     }
 

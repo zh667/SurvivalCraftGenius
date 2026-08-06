@@ -104,7 +104,11 @@ Genius:16 commits 挤在两天、约 1/3 代码(含整个 Nav/ A\*)未提交、�
       开箱成败;注入=每回合临时 `<world_state>` system 消息(含双方位置,回合末移除,
       Numen 式每请求重建,不胀历史不落盘);持久化并入每世界记忆文件(向后兼容旧文件);
       +10 测试(89/89)
-- [ ] B. 受击反击链(MobDefense 对应物)
+- [x] B. 受击反击链(第六轮,MobDefense 对应物):挂 `ComponentHealth.Attacked` 事件
+      (原版生物反击同款钩子)→ GeniusInstincts 第 4 反射:12 秒交战窗、20m 脱离、
+      近战核心与 AttackOrder 同款(IsAttackHitMoment + Miner.Hit);永不还手打玩家;
+      血量 <30% 弃战交给引擎逃跑;生存本能(岩浆/溺水/着火)永远优先于反击;
+      prompt 已同步。纯游戏侧代码,Linux 无法单测,待 Windows 实机验证
 - [ ] C. look_around ASCII 空间网格
 - [ ] D. 联机 M4
 

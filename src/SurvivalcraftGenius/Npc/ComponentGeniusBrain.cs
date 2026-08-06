@@ -201,6 +201,8 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         m_componentCreature = Entity.FindComponent<ComponentCreature>(throwOnError: true)!;
         m_componentPathfinding = Entity.FindComponent<ComponentPathfinding>(throwOnError: true)!;
         m_componentMiner = Entity.FindComponent<ComponentMiner>(throwOnError: true)!;
+        // Same hook vanilla creatures use for retaliation (ComponentChaseBehavior).
+        m_componentCreature.ComponentHealth.Attacked += Instincts.NotifyAttacked;
     }
 
     public override void OnEntityAdded()
