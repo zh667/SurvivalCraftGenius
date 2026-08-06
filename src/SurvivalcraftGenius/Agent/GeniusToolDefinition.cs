@@ -34,8 +34,15 @@ public static class ToolCatalog
             """));
         registry.Register(new GeniusToolDefinition(
             "scan_surroundings",
-            "Scan blocks and creatures around yourself. Returns block counts, positions of uncommon blocks, nearby creatures and the player's position.",
+            "Scan blocks and creatures around yourself. Returns block counts, positions of uncommon blocks, nearby creatures and the player's position. For terrain shape and walkability use look_around instead.",
             NoParameters));
+        registry.Register(new GeniusToolDefinition(
+            "look_around",
+            "Top-down ASCII terrain map centered on me: walkable ground, steps, drops, walls, water, lava hazards — computed with the same rules as my pathfinding. Use for movement planning, terrain questions, and danger checks; scan_surroundings lists things instead.",
+            """
+            {"type":"object","properties":{
+              "radius":{"type":"integer","description":"Map radius in blocks, 4-16. Default 8."}}}
+            """));
         registry.Register(new GeniusToolDefinition(
             "goto",
             "Walk to the given block coordinate. With dig_through=true I will tunnel/build steps through terrain to get there.",

@@ -56,6 +56,16 @@
     "accept_tools": ["scan_surroundings"]
   },
   {
+    "name": "terrain_uses_look_around",
+    "user": "看看周围地形,哪个方向好走?",
+    "accept_tools": ["look_around"]
+  },
+  {
+    "name": "danger_check_uses_look_around",
+    "user": "前面有没有悬崖或者岩浆?怎么走安全?",
+    "accept_tools": ["look_around"]
+  },
+  {
     "name": "inventory_check",
     "user": "你包里现在有什么东西?",
     "accept_tools": ["get_inventory"]

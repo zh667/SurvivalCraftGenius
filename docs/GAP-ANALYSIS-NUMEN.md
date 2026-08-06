@@ -109,7 +109,13 @@ Genius:16 commits 挤在两天、约 1/3 代码(含整个 Nav/ A\*)未提交、�
       近战核心与 AttackOrder 同款(IsAttackHitMoment + Miner.Hit);永不还手打玩家;
       血量 <30% 弃战交给引擎逃跑;生存本能(岩浆/溺水/着火)永远优先于反击;
       prompt 已同步。纯游戏侧代码,Linux 无法单测,待 Windows 实机验证
-- [ ] C. look_around ASCII 空间网格
+- [x] C. look_around ASCII 空间网格(第七轮):`Npc/GeniusLookAround` 俯视字符地图,
+      字形全部由寻路器同款 NavCell 谓词推导(吃 INavWorld 接口,Linux 可全量单测);
+      11 字形(@P.^vV#~D!x?)+ costmap 式危险膨胀 + 未加载列诚实标注;
+      轴向采用 SCTM 太阳实测结论(东=-X 北=+Z)写死在输出里,不再赌方向;
+      半径 4–16 参数;22 工具;+6 渲染测试(95/95);bench 加 2 个 scan/look 分流用例
+      (双双 3/3),prompt 感知分工 + "已确认目标直接行动";bench 五行曲线:
+      22.7→72.0→86.7→(加新用例回撤 77.8,系 prompt 丢限定词回归,已修)→82.7,pass@3 92.6
 - [ ] D. 联机 M4
 
 ### 状态跟踪(2026-08-05 第一轮修复)

@@ -623,6 +623,25 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             case "scan_surroundings":
                 return Task.FromResult(
                     GeniusPerception.ScanSurroundings(brain, m_componentPlayer.ComponentBody));
+            case "look_around":
+            {
+                var radius = (int?)arguments["radius"] ?? GeniusLookAround.DefaultRadius;
+                var (navWorld, _) = Npc.Nav.ScNavWorld.Capture(brain, allowDigging: false);
+                var terrain = brain.SubsystemTerrain.Terrain;
+                var forward = brain.Creature.ComponentBody.Matrix.Forward;
+                // Sun-verified compass (TravelMap lesson): east=-X, north=+Z.
+                var facing = Math.Abs(forward.X) >= Math.Abs(forward.Z)
+                    ? forward.X < 0 ? "东(x减)" : "西(x增)"
+                    : forward.Z > 0 ? "北(z增)" : "南(z减)";
+                return Task.FromResult(GeniusLookAround.Render(
+                    navWorld,
+                    Terrain.ToCell(brain.Creature.ComponentBody.Position),
+                    Terrain.ToCell(m_componentPlayer.ComponentBody.Position),
+                    radius,
+                    facing,
+                    (x, z) => terrain.GetChunkAtCell(x, z) is not null));
+            }
+
             case "get_inventory":
                 return Task.FromResult(GeniusPerception.DescribeInventory(brain));
             case "follow_player":
