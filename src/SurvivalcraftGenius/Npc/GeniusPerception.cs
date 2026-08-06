@@ -278,7 +278,13 @@ public static class GeniusPerception
         world["temperature_0_to_15"] = temperature;
         if (temperature <= 0)
         {
-            world["note_cold"] = "严寒环境(会降体温/降雪),玩家久留会冻伤";
+            // Engine rule (SubsystemCreatureSpawn suitability): most food
+            // animals require temperature>4 (ducks also humidity>8); cold
+            // biomes spawn mostly wolves/ravens. Say it or the model wanders
+            // a snowfield hunting dinner forever (Game.log lesson).
+            world["note_cold"] = "严寒环境(会降体温/降雪),玩家久留会冻伤;" +
+                "引擎规则:多数可猎食草动物(鸭/牛/猪等)只在温度>4的地带刷新,严寒区常见的只有狼和乌鸦——" +
+                "想搞食物应前往温暖地带打猎,在雪原上游荡是等不到猎物的";
         }
 
         return world;

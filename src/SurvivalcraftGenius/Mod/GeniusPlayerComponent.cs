@@ -433,8 +433,14 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         if (restored.Messages is not null && !_restoreAnnounced)
         {
             _restoreAnnounced = true;
+            // After a player death/respawn the component is rebuilt but the
+            // NPC (and its running order) survives — say so, or the reload
+            // message reads like the companion lost its task.
+            var ongoing = FindBrain()?.CurrentOrderLabel is { } orderLabel
+                ? $";同伴仍在执行:{OrderLabels.GetValueOrDefault(orderLabel, orderLabel)}"
+                : "";
             AppendLog(GeniusChatRole.Info,
-                $"已恢复这个世界的记忆(对话 {restored.Messages.Count} 条,地标 {restored.Landmarks.Count} 个)。");
+                $"已衔接这个世界的记忆(对话 {restored.Messages.Count} 条,地标 {restored.Landmarks.Count} 个){ongoing}。");
         }
     }
 
@@ -485,13 +491,24 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             ? (Point3?)null
             : Terrain.ToCell(brain.Creature.ComponentBody.Position);
         var playerCell = Terrain.ToCell(m_componentPlayer.ComponentBody.Position);
-        var lines = new List<string>(3);
+        var lines = new List<string>(4);
         if (npcCell is { } npc)
         {
             var distance = Vector3.Distance(
                 brain!.Creature.ComponentBody.Position, m_componentPlayer.ComponentBody.Position);
             lines.Add($"我的位置: ({npc.X},{npc.Y},{npc.Z});玩家位置: " +
                 $"({playerCell.X},{playerCell.Y},{playerCell.Z});相距 {distance:0}m");
+            // Survives player respawns: the new agent instance immediately
+            // sees what the (still running) body is doing.
+            if (brain.CurrentOrderLabel is { } orderLabel)
+            {
+                lines.Add($"我正在执行中的任务: {OrderLabels.GetValueOrDefault(orderLabel, orderLabel)}" +
+                    "(后台继续,无需重下指令)");
+            }
+            else if (brain.IsFollowing)
+            {
+                lines.Add("我正在跟随玩家");
+            }
         }
         else
         {
