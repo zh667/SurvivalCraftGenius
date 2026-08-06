@@ -386,7 +386,11 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     public static List<(int Value, int Count)>? TakeDeathStash(string ownerId) =>
         DeathStashes.TryRemove(ownerId ?? "", out var stash) ? stash : null;
 
-    /// <summary>On death, keep everything carried for the next summon.</summary>
+    /// <summary>
+    /// On death, keep everything carried for the next summon. Runs even when
+    /// the keep-inventory rule is off: the drop pass has already happened by
+    /// removal time, so the stash is simply empty in that case.
+    /// </summary>
     private void SpillInventoryIfDead()
     {
         if (m_componentCreature.ComponentHealth.Health > 0f

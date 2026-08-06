@@ -21,6 +21,8 @@ public sealed class GeniusSettingsDialog : Dialog
     private readonly TextBoxWidget _keyBox;
     private readonly BevelledButtonWidget _saveButton;
     private readonly BevelledButtonWidget _cancelButton;
+    private readonly BevelledButtonWidget _keepInventoryButton;
+    private string _keepInventoryMode;
     private bool _closed;
 
     public GeniusSettingsDialog(GeniusPlayerComponent component)
@@ -69,6 +71,23 @@ public sealed class GeniusSettingsDialog : Dialog
             Size = new Vector2(680f, 24f),
         });
 
+        _keepInventoryMode = settings.KeepInventoryMode;
+        _keepInventoryButton = new BevelledButtonWidget
+        {
+            Text = KeepInventoryLabel(_keepInventoryMode),
+            FontScale = 0.62f,
+            Size = new Vector2(400f, 44f),
+            Margin = new Vector2(0f, 6f),
+        };
+        stack.Children.Add(_keepInventoryButton);
+        stack.Children.Add(new LabelWidget
+        {
+            Text = "死亡不掉落规则由开服端决定,对所有人生效(含后加入的玩家);经验本就不会因死亡丢失",
+            FontScale = 0.55f,
+            Color = HintColor,
+            Size = new Vector2(680f, 24f),
+        });
+
         var buttonRow = new StackPanelWidget
         {
             Direction = LayoutDirection.Horizontal,
@@ -100,6 +119,17 @@ public sealed class GeniusSettingsDialog : Dialog
             return;
         }
 
+        if (_keepInventoryButton.IsClicked)
+        {
+            _keepInventoryMode = _keepInventoryMode switch
+            {
+                GeniusSettings.KeepInventoryCompanion => GeniusSettings.KeepInventoryAll,
+                GeniusSettings.KeepInventoryAll => GeniusSettings.KeepInventoryOff,
+                _ => GeniusSettings.KeepInventoryCompanion,
+            };
+            _keepInventoryButton.Text = KeepInventoryLabel(_keepInventoryMode);
+        }
+
         if (_saveButton.IsClicked)
         {
             var current = _component.Settings;
@@ -112,6 +142,7 @@ public sealed class GeniusSettingsDialog : Dialog
                 MaxToolSteps = current.MaxToolSteps,
                 RequestTimeoutSeconds = current.RequestTimeoutSeconds,
                 ToolTimeoutSeconds = current.ToolTimeoutSeconds,
+                KeepInventoryOnDeath = _keepInventoryMode,
             });
             Close();
         }
@@ -123,6 +154,13 @@ public sealed class GeniusSettingsDialog : Dialog
 
         InputIsolation.ShieldRestOfFrame(Input);
     }
+
+    private static string KeepInventoryLabel(string mode) => mode switch
+    {
+        GeniusSettings.KeepInventoryAll => "死亡不掉落:全服所有人(玩家+守护灵)",
+        GeniusSettings.KeepInventoryOff => "死亡不掉落:关闭(原版规则)",
+        _ => "死亡不掉落:仅守护灵",
+    };
 
     private void Close()
     {

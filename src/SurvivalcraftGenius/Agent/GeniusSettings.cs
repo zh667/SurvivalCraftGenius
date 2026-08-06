@@ -25,6 +25,26 @@ public sealed class GeniusSettings
     /// <summary>Per-tool completion timeout (goto/dig can take a while).</summary>
     public int ToolTimeoutSeconds { get; set; } = 120;
 
+    /// <summary>
+    /// Who keeps their items on death. Server-side rule: it is enforced at the
+    /// engine's death moment, so it covers every player — including ones who
+    /// join later — without any per-player setup.
+    /// "off" = vanilla, "companion" = only the Genius NPC, "all" = everyone.
+    /// </summary>
+    public string KeepInventoryOnDeath { get; set; } = KeepInventoryCompanion;
+
+    public const string KeepInventoryOff = "off";
+    public const string KeepInventoryCompanion = "companion";
+    public const string KeepInventoryAll = "all";
+
+    /// <summary>Normalized value; unknown strings fall back to companion-only.</summary>
+    public string KeepInventoryMode => KeepInventoryOnDeath?.Trim().ToLowerInvariant() switch
+    {
+        KeepInventoryOff => KeepInventoryOff,
+        KeepInventoryAll => KeepInventoryAll,
+        _ => KeepInventoryCompanion,
+    };
+
     public bool IsConfigured => !string.IsNullOrWhiteSpace(ApiKey);
 
     public string ChatCompletionsUrl =>

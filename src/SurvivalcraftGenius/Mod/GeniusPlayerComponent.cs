@@ -357,6 +357,11 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     {
         _settings = settings;
         _settingsStore.Save(settings);
+        if (_workType != WorkType.Client)
+        {
+            GeniusKeepInventory.Mode = settings.KeepInventoryMode;
+        }
+
         RebuildAgent();
         AppendLog(GeniusChatRole.Info, "设置已保存。");
     }
@@ -369,6 +374,12 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         _workType = CommonLib.WorkType;
         _settingsStore = new GeniusSettingsStore(Storage.GetSystemPath("data:/SurvivalcraftGenius"));
         _settings = _settingsStore.Load();
+        // Death rule is world-global and server-authoritative; the local
+        // config drives it on whichever machine runs the world.
+        if (_workType != WorkType.Client)
+        {
+            GeniusKeepInventory.Mode = _settings.KeepInventoryMode;
+        }
         _knowledgeStore = new GeniusKnowledgeStore(
             Storage.GetSystemPath("data:/SurvivalcraftGenius/knowledge"));
         _knowledgeStore.EnsureStarter();

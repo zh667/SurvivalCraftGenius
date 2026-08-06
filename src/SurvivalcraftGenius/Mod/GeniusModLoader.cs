@@ -30,6 +30,24 @@ public sealed class GeniusModLoader : ModLoader
         }
     }
 
+    /// <summary>
+    /// Engine hook at the death moment (ComponentHealth, server side). Skip=true
+    /// cancels the vanilla drop pass — this is what makes keep-inventory apply
+    /// to every player, including ones who join later.
+    /// </summary>
+    public override void DeadBeforeDrops(Game.ComponentHealth componentHealth, out bool Skip)
+    {
+        Skip = false;
+        try
+        {
+            Skip = GeniusKeepInventory.ShouldKeepInventory(componentHealth);
+        }
+        catch (Exception exception)
+        {
+            Engine.Log.Warning($"[Genius] keep-inventory check failed: {exception.Message}");
+        }
+    }
+
     public override void __ModInitialize()
     {
         // Manual registration is mandatory: the game's auto-registration of
