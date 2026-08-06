@@ -66,6 +66,7 @@ public sealed class GeniusExpeditionKeeper
 
         if (_active && nearestPlayer < DeactivateDistance)
         {
+            Engine.Log.Information("[Genius] Expedition keeper OFF (back near a player).");
             Deactivate(brain);
             return;
         }
@@ -78,6 +79,8 @@ public sealed class GeniusExpeditionKeeper
             }
 
             _active = true;
+            Engine.Log.Information(
+                $"[Genius] Expedition keeper ON at {myPosition} ({nearestPlayer:0}m from nearest player).");
         }
 
         brain.SubsystemTerrain.TerrainUpdater.SetUpdateLocation(
@@ -156,6 +159,8 @@ public sealed class GeniusExpeditionKeeper
                         spawnChunk, creatureSpawn.GetSpawnFactorByPlayerCount(), constantSpawn: false);
                     creatureSpawn.SpawnChunkCreatures(spawnChunk, 2, constantSpawn: true);
                     spawnChunk.IsSpawned = true;
+                    Engine.Log.Information(
+                        $"[Genius] Expedition keeper seeded first-visit spawn chunk {chunkPoint}.");
                 }
 
                 readyChunks.Add(spawnChunk);

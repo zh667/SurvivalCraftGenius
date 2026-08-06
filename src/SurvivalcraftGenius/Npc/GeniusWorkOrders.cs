@@ -630,8 +630,10 @@ public sealed class AttackOrder(ComponentCreature target, bool sneak = false) : 
 {
     private const float StrikeRange = 2.2f;
     private const float GiveUpRange = 30f;
+    private const float AirborneGiveUpSeconds = 5f;
     private double _nextPathUpdateTime;
     private double _lootUntilTime;
+    private float _airborneTime;
 
     protected override float TimeoutSeconds => sneak ? 120f : 60f;
 
@@ -671,6 +673,29 @@ public sealed class AttackOrder(ComponentCreature target, bool sneak = false) : 
         var targetPosition = target.ComponentBody.Position;
         var myPosition = brain.Creature.ComponentBody.Position;
         var distance = Vector3.Distance(myPosition, targetPosition);
+
+        // A flying bird is unreachable by melee — the old behavior ground the
+        // pathfinder against it for a minute before failing. Give up early
+        // with the actual reason instead (Game.log lesson, 2026-08-06).
+        if (distance > StrikeRange && !target.ComponentBody.StandingOnValue.HasValue
+            && target.ComponentBody.ImmersionFluidBlock is null)
+        {
+            _airborneTime += dt;
+            if (_airborneTime > AirborneGiveUpSeconds)
+            {
+                model.AttackOrder = false;
+                brain.Creature.ComponentBody.IsSneaking = false;
+                brain.m_componentPathfinding.Stop();
+                return $"error[target_lost]: {target.DisplayName} is airborne — melee cannot reach a " +
+                    "flying bird; stay still (sneaking) and wait for it to land, then attack again, " +
+                    "or pick a ground animal instead";
+            }
+        }
+        else
+        {
+            _airborneTime = 0f;
+        }
+
         if (distance > GiveUpRange)
         {
             model.AttackOrder = false;
