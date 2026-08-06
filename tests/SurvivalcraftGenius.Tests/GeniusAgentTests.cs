@@ -197,6 +197,42 @@ public class GeniusAgentMemoryTests
     }
 
     [Fact]
+    public async Task TurnContext_IsInjectedFreshEachTurnAndNeverAccumulates()
+    {
+        const string finalResponse = """{"choices":[{"message":{"content":"好。"}}]}""";
+        var handler = new ScriptedHandler(finalResponse);
+        var settings = TestSettings;
+        using var client = new LlmClient(settings, handler);
+        IReadOnlyList<ChatMessage>? persisted = null;
+        var contextVersion = 0;
+        var agent = new GeniusAgent(
+            client,
+            ToolCatalog.CreateDefaultRegistry(),
+            (_, _) => Task.FromResult(""),
+            _ => { },
+            settings,
+            restoredHistory: null,
+            persistHistory: history => persisted = history,
+            turnContext: () => $"<world_state>LANDMARK_V{++contextVersion}</world_state>");
+
+        Assert.True(agent.TryBeginTurn());
+        await agent.RunTurnAsync("第一句", CancellationToken.None);
+        Assert.True(agent.TryBeginTurn());
+        await agent.RunTurnAsync("第二句", CancellationToken.None);
+
+        // Each request carries exactly the current context, rebuilt per turn.
+        Assert.Contains("LANDMARK_V1", handler.RequestBodies[0]);
+        Assert.DoesNotContain("LANDMARK_V1", handler.RequestBodies[1]);
+        Assert.Contains("LANDMARK_V2", handler.RequestBodies[1]);
+
+        // And it never sticks in the history: one system message (the prompt),
+        // no world_state remnants.
+        Assert.NotNull(persisted);
+        Assert.Single(persisted, message => message.Role == "system");
+        Assert.DoesNotContain(persisted, message => message.Content.Contains("LANDMARK_"));
+    }
+
+    [Fact]
     public async Task PersistHook_ReceivesHistorySnapshotAtTurnEnd()
     {
         const string finalResponse = """{"choices":[{"message":{"content":"你好。"}}]}""";

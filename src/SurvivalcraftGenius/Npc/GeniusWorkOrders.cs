@@ -280,7 +280,11 @@ public sealed class CraftOrder(string itemName, int count) : GeniusOrder
             if (_approach is null)
             {
                 var table = FindNearestBlock<CraftingTableBlock>(brain, 32);
-                if (table is null)
+                if (table is { } tableCell)
+                {
+                    brain.Landmarks?.Record("工作台", tableCell.X, tableCell.Y, tableCell.Z);
+                }
+                else
                 {
                     // If a table is hand-craftable from what I carry, say so —
                     // the fix is one tool call away, not a trek.
@@ -450,6 +454,11 @@ public sealed class SmeltOrder(string itemName, int count) : GeniusOrder
             if (_approach is null)
             {
                 var furnace = CraftOrder.FindNearestBlock<FurnaceBlock>(brain, 32);
+                if (furnace is { } furnaceCell)
+                {
+                    brain.Landmarks?.Record("熔炉", furnaceCell.X, furnaceCell.Y, furnaceCell.Z);
+                }
+
                 if (furnace is null)
                 {
                     return "error[missing_station]: no furnace within ~32 blocks — place one or lead me to one";

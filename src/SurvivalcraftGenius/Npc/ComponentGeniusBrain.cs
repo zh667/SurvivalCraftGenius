@@ -66,6 +66,12 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
 
     public SubsystemBlockEntities SubsystemBlockEntities => m_subsystemBlockEntities;
 
+    /// <summary>
+    /// World-scoped landmark memory (owned by the player component, attached
+    /// on tool dispatch) — orders and perception record stations they find.
+    /// </summary>
+    public LandmarkMemory? Landmarks { get; set; }
+
     /// <summary>Self-preservation reflexes that outbid orders for the body.</summary>
     public GeniusInstincts Instincts { get; } = new();
 

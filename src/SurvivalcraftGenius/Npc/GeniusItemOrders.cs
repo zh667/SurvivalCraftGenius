@@ -146,9 +146,12 @@ public abstract class ChestOrderBase(Point3 chest) : GeniusOrder
         var chestInventory = blockEntity?.Entity.FindComponent<ComponentChest>();
         if (chestInventory is null)
         {
+            // The landmark (if we had one here) is stale — forget it.
+            brain.Landmarks?.Remove(chest.X, chest.Y, chest.Z);
             return $"error[not_found]: no chest at ({chest.X}, {chest.Y}, {chest.Z})";
         }
 
+        brain.Landmarks?.Record("箱子", chest.X, chest.Y, chest.Z);
         return Transfer(brain, chestInventory);
     }
 

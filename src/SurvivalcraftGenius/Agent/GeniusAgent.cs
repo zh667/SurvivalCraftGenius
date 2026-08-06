@@ -55,6 +55,8 @@ public sealed class GeniusAgent
         - scan 的 world 字段是引擎实测的机制状态:time_of_day/moon_phase/temperature 等;
           shapeshifter_night=true 表示今晚(满月或新月)会出狼人等变身怪,规划夜间行动前先看它。
         - 工具报错时读完整句——错误信息里通常已写明下一步该调什么(缺什么材料、正确的名字、该去哪)。
+        - 每回合开头注入一条 <world_state>:我的/玩家当前位置,和已知地标(用过或见过的工作台/熔炉/箱子坐标)。
+          优先用它,不必为找台子反复 scan;地标可能过时,到场对不上就以现场为准(我发现地标消失会自动忘掉它)。
         - 失败格式为 error[分类]: 说明,分类决定对策:no_path/not_found/target_lost/area_not_loaded →
           换路线换地点或稍等重试,自己解决;missing_material/missing_station/tool_too_weak →
           按自力更生顺序先取得先决条件再重试;invalid_argument/invalid_target/wrong_method →
@@ -89,6 +91,7 @@ public sealed class GeniusAgent
     private readonly Action<AgentEvent> _onEvent;
     private readonly GeniusSettings _settings;
     private readonly Action<IReadOnlyList<ChatMessage>>? _persistHistory;
+    private readonly Func<string?>? _turnContext;
     private readonly List<ChatMessage> _history = [];
     private readonly object _gate = new();
     private bool _busy;
@@ -100,8 +103,10 @@ public sealed class GeniusAgent
         Action<AgentEvent> onEvent,
         GeniusSettings settings,
         IReadOnlyList<ChatMessage>? restoredHistory = null,
-        Action<IReadOnlyList<ChatMessage>>? persistHistory = null)
+        Action<IReadOnlyList<ChatMessage>>? persistHistory = null,
+        Func<string?>? turnContext = null)
     {
+        _turnContext = turnContext;
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _executeTool = executeTool ?? throw new ArgumentNullException(nameof(executeTool));
@@ -153,9 +158,18 @@ public sealed class GeniusAgent
     /// <summary>Call only after TryBeginTurn returned true.</summary>
     public async Task RunTurnAsync(string userText, CancellationToken cancellationToken)
     {
+        // World-state context is rebuilt per turn, Numen-style: inserted just
+        // before the user message, removed again in the finally — it never
+        // accumulates in (or persists with) the history.
+        ChatMessage? contextMessage = null;
         try
         {
             AppendAndTrim(ChatMessage.User(userText));
+            if (_turnContext?.Invoke() is { Length: > 0 } context)
+            {
+                contextMessage = ChatMessage.System(context);
+                _history.Insert(_history.Count - 1, contextMessage);
+            }
             var stepsThisRound = 0;
             var autoContinues = 0;
             var maxSteps = Math.Max(8, _settings.MaxToolSteps);
@@ -242,6 +256,11 @@ public sealed class GeniusAgent
         }
         finally
         {
+            if (contextMessage is not null)
+            {
+                _history.Remove(contextMessage);
+            }
+
             lock (_gate)
             {
                 _busy = false;
