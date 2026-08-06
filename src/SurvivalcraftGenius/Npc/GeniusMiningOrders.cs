@@ -62,6 +62,7 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
                     var suggestions = Agent.NameSuggest.Clause(query, _seenBlockNames);
                     return $"error[not_found]: no blocks matching '{query}' within ~{SearchRadius}m " +
                         $"(searched down to {SearchDepth} blocks below me){suggestions}" +
+                        OreDepthHint(query, brain.Creature.ComponentBody.Position.Y) +
                         "; names must match this game's own terms (this is not Minecraft) — " +
                         "verify with query_recipes or query_help, or move me elsewhere and retry";
                 }
@@ -314,6 +315,38 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
     }
 
     /// <summary>
+    /// Ore generation bands (engine terrain generator): the usual reason a
+    /// search finds nothing is standing at the surface while the ore lives
+    /// deep in basalt.
+    /// </summary>
+    private static string OreDepthHint(string query, float myY)
+    {
+        if (query.Contains('铁') || query.Contains('硫') || query.Contains('锗'))
+        {
+            return $"; hint: 铁/硫/锗矿只生成在 y2-40 的玄武岩深层(我现在在 y={(int)myY})" +
+                " — goto(dig_through=true) 挖到 y≤35 再搜";
+        }
+
+        if (query.Contains("钻石"))
+        {
+            return $"; hint: 钻石矿只生成在 y2-15 的玄武岩最深层(我在 y={(int)myY};y15-20 常有岩浆,导航会绕)" +
+                " — 先挖到 y≤15 再搜";
+        }
+
+        if (query.Contains('铜') || query.Contains("孔雀"))
+        {
+            return $"; hint: 铜(孔雀石)矿生成在 y20-65 的花岗岩层(我在 y={(int)myY})";
+        }
+
+        if (query.Contains('硝'))
+        {
+            return "; hint: 硝石只生成在 y50-90 的砂岩层(沙漠地下)";
+        }
+
+        return "";
+    }
+
+    /// <summary>
     /// Refuses to grind for minutes with bare hands: if the best tool still
     /// needs more than ~6s per block, ask for/craft a proper pick first.
     /// </summary>
@@ -330,7 +363,9 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
 
         var name = GeniusInventoryOps.ItemName(brain, cellValue);
         return $"error[tool_too_weak]: digging '{name}' with what I have would take ~{digTime:F0}s per block — " +
-            "give me a proper pick or let me craft one first (craft 'pick'), then retry";
+            "craft the stone-tier tool first (石锤: 2木棒+1鹅卵石/石块, crafting table only, no furnace; " +
+            "dig 砾石 gravel for stone chunks, 67% drop) — it mines every ore in 3-5s, then retry. " +
+            "Tool tier never affects drops, only speed";
     }
 
     private string Summary()

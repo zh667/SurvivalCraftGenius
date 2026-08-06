@@ -911,7 +911,20 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 var destCell = Terrain.ToCell(destination);
                 var terrain = brain.SubsystemTerrain.Terrain;
                 var loaded = terrain.GetChunkAtCell(destCell.X, destCell.Z) is not null;
-                if (loaded)
+                if (!loaded)
+                {
+                    // Blind teleport killed the NPC twice (physics runs before
+                    // terrain exists). Hover in the sky; the brain snaps to
+                    // the surface once the expedition keeper loads the chunk.
+                    brain.PendingTeleportHover = new Vector3(destCell.X + 0.5f, 150f, destCell.Z + 0.5f);
+                    brain.Creature.ComponentBody.Position = brain.PendingTeleportHover.Value;
+                    brain.Creature.ComponentBody.Velocity = Vector3.Zero;
+                    return Task.FromResult(
+                        $"teleporting to ({destCell.X}, ?, {destCell.Z}) — the area is still loading; " +
+                        "I hover safely and will land on the surface within a few seconds. " +
+                        "Wait a moment, then scan before acting.");
+                }
+
                 {
                     // Landing guard: the model guesses Y over unseen terrain —
                     // playtest 2 ended with a fatal fall at a guessed y=70.
@@ -1046,6 +1059,33 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                         : $"nearby creatures: {string.Join(", ", nearby)}";
                     return Task.FromResult(
                         $"error[not_found]: no creature matching '{query}' within 24m{suggestions}; {listing}");
+                }
+
+                // Weapon preflight: the NPC charged a bison (resilience 75)
+                // bare-handed in playtest 3 and was trampled to death. Big
+                // game demands a real melee weapon; small game is fine.
+                var resilience = target.ComponentHealth.AttackResilience;
+                var bestMelee = 1f;
+                if (brain.Miner.Inventory is { } attackInventory)
+                {
+                    for (var slot = 0; slot < attackInventory.SlotsCount; slot++)
+                    {
+                        var slotValue = attackInventory.GetSlotValue(slot);
+                        if (slotValue != 0)
+                        {
+                            bestMelee = Math.Max(bestMelee, BlocksManager.Blocks[
+                                Terrain.ExtractContents(slotValue)].GetMeleePower(slotValue));
+                        }
+                    }
+                }
+
+                if (resilience >= 50f && bestMelee < 3f)
+                {
+                    return Task.FromResult(GeniusFailure.Format(FailureType.ToolTooWeak,
+                        $"{target.DisplayName} is big game (resilience {resilience:0}) and my best " +
+                        $"melee power is only {bestMelee:0.#} — charging it would take dozens of hits " +
+                        "while it tramples me (this killed me before). Craft/get a real weapon " +
+                        "(剑/砍刀, melee_power ≥3) first, or pick smaller prey"));
                 }
 
                 var sneak = arguments["sneak"]?.ToObject<bool>() ?? false;
