@@ -29,6 +29,7 @@ public sealed class GeniusExpeditionKeeper
     private const int ChunkRange = 2;
 
     private readonly List<ComponentSpawn> _protected = [];
+    private readonly HashSet<Point2> _seeded = [];
     private readonly Game.Random _random = new();
     private bool _active;
     private double _nextTickTime;
@@ -152,7 +153,10 @@ public sealed class GeniusExpeditionKeeper
                     spawnChunk.SpawnsData.Clear();
                 }
 
-                if (!spawnChunk.IsSpawned)
+                // The engine can recycle SpawnChunk records (IsSpawned resets),
+                // which made us re-seed the same chunks 36s apart in playtest 2
+                // — creature-inflation risk. Our own per-life set is the guard.
+                if (!spawnChunk.IsSpawned && _seeded.Add(chunkPoint))
                 {
                     // First visit ever: initial wildlife seeding, vanilla cadence.
                     creatureSpawn.SpawnChunkCreatures(
