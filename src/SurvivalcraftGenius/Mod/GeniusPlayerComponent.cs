@@ -46,6 +46,10 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     private int _worldSeed;
     private bool _restoreAnnounced;
     private readonly Dictionary<FailureType, int> _failureCounts = [];
+    private readonly LandmarkMemory _landmarks = new();
+    private bool _landmarksRestored;
+    private volatile string? _turnContextCache;
+    private double _nextContextUpdateTime;
     private LlmClient? _llmClient;
     private GeniusAgent? _agent;
     private GeniusChatDialog? _dialog;
@@ -94,6 +98,14 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             {
                 Log.Warning($"[Genius] Main-thread action failed: {exception.Message}");
             }
+        }
+
+        // Refresh the per-turn world-state context off the game state (read
+        // by the agent's background thread via the volatile cache).
+        if (Time.FrameStartTime >= _nextContextUpdateTime)
+        {
+            _nextContextUpdateTime = Time.FrameStartTime + 1.0;
+            _turnContextCache = BuildTurnContext();
         }
 
         if (!m_componentPlayer.PlayerData.IsMainPlayer)
@@ -365,27 +377,35 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     {
         _llmClient?.Dispose();
         _llmClient = new LlmClient(_settings);
-        var restored = LoadPersistedConversation();
+        var restored = LoadPersistedMemory();
+        if (!_landmarksRestored)
+        {
+            _landmarksRestored = true;
+            _landmarks.Restore(restored.Landmarks);
+        }
+
         _agent = new GeniusAgent(
             _llmClient,
             ToolCatalog.CreateDefaultRegistry(),
             ExecuteToolAsync,
             OnAgentEvent,
             _settings,
-            restored,
-            PersistConversation);
-        if (restored is not null && !_restoreAnnounced)
+            restored.Messages,
+            PersistConversation,
+            () => _turnContextCache);
+        if (restored.Messages is not null && !_restoreAnnounced)
         {
             _restoreAnnounced = true;
-            AppendLog(GeniusChatRole.Info, $"已恢复这个世界的对话记忆({restored.Count} 条)。");
+            AppendLog(GeniusChatRole.Info,
+                $"已恢复这个世界的记忆(对话 {restored.Messages.Count} 条,地标 {restored.Landmarks.Count} 个)。");
         }
     }
 
-    private List<Agent.ChatMessage>? LoadPersistedConversation()
+    private WorldMemory LoadPersistedMemory()
     {
         if (_conversationStore is null || _worldKey is null)
         {
-            return null;
+            return WorldMemory.Empty;
         }
 
         try
@@ -394,8 +414,8 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         }
         catch (Exception exception)
         {
-            Log.Warning($"[Genius] Failed to restore conversation: {exception.Message}");
-            return null;
+            Log.Warning($"[Genius] Failed to restore memory: {exception.Message}");
+            return WorldMemory.Empty;
         }
     }
 
@@ -409,12 +429,47 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
 
         try
         {
-            _conversationStore.Save(_worldKey, _worldSeed, history);
+            _conversationStore.Save(_worldKey, _worldSeed, history, _landmarks.Snapshot());
         }
         catch (Exception exception)
         {
-            Log.Warning($"[Genius] Failed to persist conversation: {exception.Message}");
+            Log.Warning($"[Genius] Failed to persist memory: {exception.Message}");
         }
+    }
+
+    /// <summary>
+    /// The Numen-style per-turn world-state block: positions + known
+    /// landmarks. Built on the game thread, consumed on the agent thread.
+    /// </summary>
+    private string? BuildTurnContext()
+    {
+        var brain = FindBrain();
+        var npcCell = brain is null
+            ? (Point3?)null
+            : Terrain.ToCell(brain.Creature.ComponentBody.Position);
+        var playerCell = Terrain.ToCell(m_componentPlayer.ComponentBody.Position);
+        var lines = new List<string>(3);
+        if (npcCell is { } npc)
+        {
+            var distance = Vector3.Distance(
+                brain!.Creature.ComponentBody.Position, m_componentPlayer.ComponentBody.Position);
+            lines.Add($"我的位置: ({npc.X},{npc.Y},{npc.Z});玩家位置: " +
+                $"({playerCell.X},{playerCell.Y},{playerCell.Z});相距 {distance:0}m");
+        }
+        else
+        {
+            lines.Add($"我未被召唤;玩家位置: ({playerCell.X},{playerCell.Y},{playerCell.Z})");
+        }
+
+        var landmarks = _landmarks.Describe(npcCell is { } cell
+            ? (cell.X, cell.Y, cell.Z)
+            : (playerCell.X, playerCell.Y, playerCell.Z));
+        if (landmarks.Length > 0)
+        {
+            lines.Add("已知地标(可能过时): " + landmarks);
+        }
+
+        return "<world_state>\n" + string.Join("\n", lines) + "\n</world_state>";
     }
 
     private void OnAgentEvent(AgentEvent agentEvent)
@@ -558,6 +613,10 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         {
             return Task.FromResult("error[not_summoned]: the companion is not summoned — ask the player to summon it first");
         }
+
+        // World-scoped landmark memory rides on the player component; hand the
+        // brain a reference so orders and perception can record into it.
+        brain.Landmarks = _landmarks;
 
         switch (name)
         {

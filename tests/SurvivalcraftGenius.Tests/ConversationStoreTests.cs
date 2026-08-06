@@ -31,7 +31,7 @@ public sealed class ConversationStoreTests : IDisposable
             ChatMessage.Assistant("挖到了 5 个煤。"),
         ]);
 
-        var restored = store.Load("World1", 12345);
+        var restored = store.Load("World1", 12345).Messages;
 
         Assert.NotNull(restored);
         Assert.Equal(4, restored.Count);
@@ -48,20 +48,20 @@ public sealed class ConversationStoreTests : IDisposable
         var store = Store;
         store.Save("World1", 111, [ChatMessage.User("old world chat")]);
 
-        Assert.Null(store.Load("World1", 222));
+        Assert.Null(store.Load("World1", 222).Messages);
         // The stale file is gone: even the original seed finds nothing now.
-        Assert.Null(store.Load("World1", 111));
+        Assert.Null(store.Load("World1", 111).Messages);
     }
 
     [Fact]
     public void Load_MissingOrCorruptFile_ReturnsNull()
     {
         var store = Store;
-        Assert.Null(store.Load("NeverSaved", 1));
+        Assert.Null(store.Load("NeverSaved", 1).Messages);
 
         Directory.CreateDirectory(_directory);
         File.WriteAllText(Path.Combine(_directory, "Broken.json"), "not json at all");
-        Assert.Null(store.Load("Broken", 1));
+        Assert.Null(store.Load("Broken", 1).Messages);
     }
 
     [Fact]
@@ -73,7 +73,7 @@ public sealed class ConversationStoreTests : IDisposable
             .ToList();
 
         store.Save("World1", 7, messages);
-        var restored = store.Load("World1", 7);
+        var restored = store.Load("World1", 7).Messages;
 
         Assert.NotNull(restored);
         Assert.Equal(ConversationStore.MaxSavedMessages, restored.Count);
@@ -92,11 +92,38 @@ public sealed class ConversationStoreTests : IDisposable
             ChatMessage.User("hello"),
         ]);
 
-        var restored = store.Load("World1", 9);
+        var restored = store.Load("World1", 9).Messages;
 
         Assert.NotNull(restored);
         Assert.Single(restored);
         Assert.Equal("user", restored[0].Role);
+    }
+
+    [Fact]
+    public void Landmarks_RoundTripAlongsideConversation()
+    {
+        var store = Store;
+        store.Save("World1", 3,
+            [ChatMessage.User("hi")],
+            [new Landmark("工作台", 10, 64, 20), new Landmark("箱子", -5, 70, 8)]);
+
+        var memory = store.Load("World1", 3);
+
+        Assert.Equal(2, memory.Landmarks.Count);
+        Assert.Equal(new Landmark("工作台", 10, 64, 20), memory.Landmarks[0]);
+        Assert.NotNull(memory.Messages);
+    }
+
+    [Fact]
+    public void Load_LegacyFileWithoutLandmarks_GivesEmptyList()
+    {
+        var store = Store;
+        store.Save("World1", 3, [ChatMessage.User("old format")]);
+
+        var memory = store.Load("World1", 3);
+
+        Assert.NotNull(memory.Messages);
+        Assert.Empty(memory.Landmarks);
     }
 
     [Fact]
@@ -105,7 +132,7 @@ public sealed class ConversationStoreTests : IDisposable
         var store = Store;
         store.Save("app:/Worlds/World 1", 5, [ChatMessage.User("hi")]);
 
-        var restored = store.Load("app:/Worlds/World 1", 5);
+        var restored = store.Load("app:/Worlds/World 1", 5).Messages;
 
         Assert.NotNull(restored);
         Assert.Equal("hi", restored[0].Content);

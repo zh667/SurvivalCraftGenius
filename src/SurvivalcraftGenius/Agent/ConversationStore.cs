@@ -11,20 +11,26 @@ namespace SurvivalcraftGenius.Agent;
 /// The system prompt is never persisted — it evolves with the mod version and
 /// is re-prepended fresh on load. Pure .NET — no game types.
 /// </summary>
+/// <summary>What a world's memory file holds: conversation + landmark memory.</summary>
+public sealed record WorldMemory(List<ChatMessage>? Messages, List<Landmark> Landmarks)
+{
+    public static WorldMemory Empty { get; } = new(null, []);
+}
+
 public sealed class ConversationStore(string directory)
 {
     /// <summary>Newest messages kept on disk; older ones were summarized anyway.</summary>
     public const int MaxSavedMessages = 80;
 
-    /// <summary>Returns the restored history, or null when absent/stale/corrupt.</summary>
-    public List<ChatMessage>? Load(string worldKey, int worldSeed)
+    /// <summary>Messages is null when absent/stale/corrupt; Landmarks is then empty.</summary>
+    public WorldMemory Load(string worldKey, int worldSeed)
     {
         var path = PathFor(worldKey);
         try
         {
             if (!File.Exists(path))
             {
-                return null;
+                return WorldMemory.Empty;
             }
 
             var root = JObject.Parse(File.ReadAllText(path));
@@ -32,7 +38,7 @@ public sealed class ConversationStore(string directory)
             {
                 // Same folder name, different world: the game recycled the name.
                 File.Delete(path);
-                return null;
+                return WorldMemory.Empty;
             }
 
             var messages = new List<ChatMessage>();
@@ -72,15 +78,20 @@ public sealed class ConversationStore(string directory)
                 messages.RemoveAt(0);
             }
 
-            return messages.Count == 0 ? null : messages;
+            var landmarks = LandmarkMemory.FromJson(root["landmarks"] as JArray);
+            return new WorldMemory(messages.Count == 0 ? null : messages, landmarks);
         }
         catch (Exception)
         {
-            return null;
+            return WorldMemory.Empty;
         }
     }
 
-    public void Save(string worldKey, int worldSeed, IReadOnlyList<ChatMessage> messages)
+    public void Save(
+        string worldKey,
+        int worldSeed,
+        IReadOnlyList<ChatMessage> messages,
+        IReadOnlyList<Landmark>? landmarks = null)
     {
         Directory.CreateDirectory(directory);
         var array = new JArray();
@@ -124,6 +135,10 @@ public sealed class ConversationStore(string directory)
             ["seed"] = worldSeed,
             ["messages"] = array,
         };
+        if (landmarks is { Count: > 0 })
+        {
+            root["landmarks"] = LandmarkMemory.ToJson(landmarks);
+        }
 
         // Write-then-move so a crash mid-write can't corrupt the only copy.
         var path = PathFor(worldKey);

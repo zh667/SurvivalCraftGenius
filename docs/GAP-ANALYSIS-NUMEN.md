@@ -97,6 +97,17 @@ Genius:16 commits 挤在两天、约 1/3 代码(含整个 Nav/ A\*)未提交、�
 4. **[架构] 失败分类枚举化**,替换 21 份散文 error;同时是未来 benchmark 的地基。
 5. **[健壮] LLM 客户端重试/退避 + 最小工具选择 benchmark**(20 个冻结场景即可),否则改 prompt 全是盲改。
 
+### 功能追赶(第二阶段,2026-08-06 起;顺序:地标记忆 → 反击 → look_around → 联机)
+
+- [x] A. 结构化地标记忆(第五轮,Numen known_blocks 对应物):`Agent/LandmarkMemory`
+      (工作台/熔炉/箱子坐标,去重/48 上限/可失效);采集点=scan 扫到、craft/smelt 找到台、
+      开箱成败;注入=每回合临时 `<world_state>` system 消息(含双方位置,回合末移除,
+      Numen 式每请求重建,不胀历史不落盘);持久化并入每世界记忆文件(向后兼容旧文件);
+      +10 测试(89/89)
+- [ ] B. 受击反击链(MobDefense 对应物)
+- [ ] C. look_around ASCII 空间网格
+- [ ] D. 联机 M4
+
 ### 状态跟踪(2026-08-05 第一轮修复)
 
 - [~] 1. 版本号已统一(csproj=modinfo=0.7.0,loader 日志改读程序集版本);**commit + tag 仍待做——最高优先级**

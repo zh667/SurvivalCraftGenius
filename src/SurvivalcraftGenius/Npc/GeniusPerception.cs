@@ -47,6 +47,14 @@ public static class GeniusPerception
                     }
 
                     var name = BlocksManager.Blocks[contents].GetDisplayName(brain.SubsystemTerrain, value);
+                    if (BlocksManager.Blocks[contents] is CraftingTableBlock or FurnaceBlock or ChestBlock)
+                    {
+                        // Seen stations become landmark memory (Numen's
+                        // known_blocks): the model reuses these coordinates
+                        // instead of re-scanning for a table next time.
+                        brain.Landmarks?.Record(name, x, y, z);
+                    }
+
                     countsByName[name] = countsByName.TryGetValue(name, out var count) ? count + 1 : 1;
                     if (!positionsByName.TryGetValue(name, out var positions))
                     {
