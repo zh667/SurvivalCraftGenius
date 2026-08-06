@@ -631,6 +631,10 @@ public sealed class AttackOrder(ComponentCreature target, bool sneak = false) : 
     private const float StrikeRange = 2.2f;
     private const float GiveUpRange = 30f;
     private const float AirborneGiveUpSeconds = 5f;
+
+    /// <summary>Bird sight is a 14m cone — wait for landing from beyond it.</summary>
+    private const float RetreatDistance = 18f;
+    private const float AirborneWaitSeconds = 45f;
     private double _nextPathUpdateTime;
     private double _lootUntilTime;
     private float _airborneTime;
@@ -674,21 +678,55 @@ public sealed class AttackOrder(ComponentCreature target, bool sneak = false) : 
         var myPosition = brain.Creature.ComponentBody.Position;
         var distance = Vector3.Distance(myPosition, targetPosition);
 
-        // A flying bird is unreachable by melee — the old behavior ground the
-        // pathfinder against it for a minute before failing. Give up early
-        // with the actual reason instead (Game.log lesson, 2026-08-06).
+        // A flying bird is unreachable by melee. In sneak mode do the hunter's
+        // wait INSIDE the order: back off beyond its 14m sight cone and hold —
+        // standing close kept re-startling it on every landing attempt, which
+        // was the playtest-3 infinite loop. Without sneak, give up early with
+        // the reason.
         if (distance > StrikeRange && !target.ComponentBody.StandingOnValue.HasValue
             && target.ComponentBody.ImmersionFluidBlock is null)
         {
             _airborneTime += dt;
+            if (sneak)
+            {
+                brain.Creature.ComponentBody.IsSneaking = true;
+                model.AttackOrder = false;
+                model.LookAtOrder = target.ComponentCreatureModel.EyePosition;
+                if (_airborneTime > AirborneWaitSeconds)
+                {
+                    brain.Creature.ComponentBody.IsSneaking = false;
+                    brain.m_componentPathfinding.Stop();
+                    return $"error[target_lost]: waited {AirborneWaitSeconds:0}s but " +
+                        $"{target.DisplayName} never landed nearby — it likely settled farther " +
+                        "away; scan again and re-approach from behind, or pick another target";
+                }
+
+                var awayXz = new Vector3(myPosition.X - targetPosition.X, 0f, myPosition.Z - targetPosition.Z);
+                if (distance < RetreatDistance && awayXz.LengthSquared() > 0.01f)
+                {
+                    if (brain.m_subsystemTime.GameTime >= _nextPathUpdateTime)
+                    {
+                        _nextPathUpdateTime = brain.m_subsystemTime.GameTime + 0.5;
+                        var retreatPoint = myPosition + Vector3.Normalize(awayXz) * (RetreatDistance + 1f - distance);
+                        WalkTowards(brain, retreatPoint, 1.5f);
+                    }
+                }
+                else
+                {
+                    brain.m_componentPathfinding.Stop();
+                }
+
+                return null;
+            }
+
             if (_airborneTime > AirborneGiveUpSeconds)
             {
                 model.AttackOrder = false;
                 brain.Creature.ComponentBody.IsSneaking = false;
                 brain.m_componentPathfinding.Stop();
                 return $"error[target_lost]: {target.DisplayName} is airborne — melee cannot reach a " +
-                    "flying bird; stay still (sneaking) and wait for it to land, then attack again, " +
-                    "or pick a ground animal instead";
+                    "flying bird; retry with sneak=true and I will back off, wait for it to land, " +
+                    "then stalk it from behind — or pick a ground animal instead";
             }
         }
         else

@@ -80,6 +80,14 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     /// </summary>
     public string OwnerPlayerId { get; set; } = "";
 
+    /// <summary>
+    /// Set when teleporting into unloaded terrain: the body hovers here
+    /// (pinned, zero velocity) until the chunk loads, then snaps to the
+    /// surface. Teleporting blind at a guessed Y killed the NPC twice in
+    /// playtests — physics runs before terrain exists.
+    /// </summary>
+    public Vector3? PendingTeleportHover { get; set; }
+
     /// <summary>Self-preservation reflexes that outbid orders for the body.</summary>
     public GeniusInstincts Instincts { get; } = new();
 
@@ -124,6 +132,26 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         }
 
         Expedition.Tick(this);
+        if (PendingTeleportHover is { } hover)
+        {
+            var body = m_componentCreature.ComponentBody;
+            var hoverCell = Terrain.ToCell(hover);
+            if (m_subsystemTerrain.Terrain.GetChunkAtCell(hoverCell.X, hoverCell.Z) is not null)
+            {
+                var top = m_subsystemTerrain.Terrain.GetTopHeight(hoverCell.X, hoverCell.Z);
+                body.Position = new Vector3(hoverCell.X + 0.5f, top + 1.5f, hoverCell.Z + 0.5f);
+                body.Velocity = Vector3.Zero;
+                PendingTeleportHover = null;
+            }
+            else
+            {
+                // Pin in the sky until the expedition keeper loads the area.
+                body.Position = hover;
+                body.Velocity = Vector3.Zero;
+                return;
+            }
+        }
+
         UpdateCore(dt);
         // Instincts run last so their movement overrides whatever the order
         // asked for this frame — the LLM is the lowest bidder for the body.
