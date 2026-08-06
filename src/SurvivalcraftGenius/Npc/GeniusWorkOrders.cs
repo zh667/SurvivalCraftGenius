@@ -736,18 +736,27 @@ public sealed class AttackOrder(ComponentCreature target, bool sneak = false) : 
                     // Silent steps (human-model footstep noise is suppressed
                     // while the body sneaks; sneaking also blocks jumps).
                     brain.Creature.ComponentBody.IsSneaking = true;
-                    // Stalk a point behind the target's facing until we are
-                    // close and in its blind rear hemisphere, then close in.
                     var targetForward = target.ComponentBody.Matrix.Forward;
                     var behindPoint = targetPosition - Vector3.Normalize(
                         new Vector3(targetForward.X, 0f, targetForward.Z)) * 3.5f;
                     var toMe = myPosition - targetPosition;
                     var inFrontOfTarget = Vector3.Dot(targetForward, toMe) > 0f;
-                    var destination = inFrontOfTarget && distance > 5f ? behindPoint : targetPosition;
-                    brain.m_componentPathfinding.SetDestination(
-                        destination, 0.55f, 1.2f, 0,
-                        useRandomMovements: false, ignoreHeightDifference: false,
-                        raycastDestination: false, null!);
+                    if (inFrontOfTarget && distance < 15f)
+                    {
+                        // Bird sight is a 14m front-hemisphere cone and the
+                        // rear is fully blind (ComponentFlyAwayBehavior).
+                        // Seen = flushed, so a real hunter FREEZES while the
+                        // bird faces this way and advances only from behind.
+                        brain.m_componentPathfinding.Stop();
+                    }
+                    else
+                    {
+                        var destination = inFrontOfTarget ? behindPoint : targetPosition;
+                        brain.m_componentPathfinding.SetDestination(
+                            destination, 0.55f, 1.2f, 0,
+                            useRandomMovements: false, ignoreHeightDifference: false,
+                            raycastDestination: false, null!);
+                    }
                 }
                 else
                 {
