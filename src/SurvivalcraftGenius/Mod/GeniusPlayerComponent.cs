@@ -265,10 +265,22 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             var entity = DatabaseManager.CreateEntity(Project, NpcTemplateName, throwIfNotFound: true);
             // Ownership: in multiplayer each player commands only their own
             // companion; FindBrain filters on this.
+            var ownerId = m_componentPlayer.PlayerData.PlayerGUID.ToString("N");
             var newBrain = entity.FindComponent<ComponentGeniusBrain>(throwOnError: false);
             if (newBrain is not null)
             {
-                newBrain.OwnerPlayerId = m_componentPlayer.PlayerData.PlayerGUID.ToString("N");
+                newBrain.OwnerPlayerId = ownerId;
+            }
+
+            // Keep-inventory on death: give back whatever it carried when it fell.
+            var restoredItems = 0;
+            if (ComponentGeniusBrain.TakeDeathStash(ownerId) is { } stash
+                && entity.FindComponent<ComponentInventory>(throwOnError: false) is { } npcInventory)
+            {
+                foreach (var (value, count) in stash)
+                {
+                    restoredItems += count - ComponentInventoryBase.AcquireItems(npcInventory, value, count);
+                }
             }
 
             var body = entity.FindComponent<ComponentBody>(throwOnError: true)!;
@@ -280,7 +292,9 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             Project.AddEntity(entity);
             Log.Information(
                 $"[Genius] NPC spawned at {spawnPosition} (player at {playerBody.Position}, workType={_workType}).");
-            AppendLog(GeniusChatRole.Info, "Genius 已召唤。按 G 打开对话,直接下指令吧。");
+            AppendLog(GeniusChatRole.Info, restoredItems > 0
+                ? $"Genius 已召唤,死亡前背包里的 {restoredItems} 件物品已原样带回。按 G 打开对话。"
+                : "Genius 已召唤。按 G 打开对话,直接下指令吧。");
         }
         catch (Exception exception)
         {
