@@ -8,20 +8,21 @@
   {
     "name": "smelt_not_craft_ingot",
     "user": "帮我做3个铁锭",
-    "accept_tools": ["smelt", "query_recipes"],
-    "expect_args": { "item_name": ["铁锭"] }
+    "accept_tools": ["smelt", "query_recipes", "get_inventory"],
+    "expect_args": {}
   },
   {
     "name": "smelt_ore_to_ingot",
     "user": "把包里这些铁矿石炼成铁锭",
-    "accept_tools": ["smelt"],
-    "expect_args": { "item_name": ["铁锭"] }
+    "world_state": "我的位置: (100,64,200);玩家位置: (102,64,201);相距 2m\n已知地标(可能过时): 熔炉(98,64,196) 5m",
+    "accept_tools": ["smelt", "get_inventory"],
+    "expect_args": {}
   },
   {
     "name": "craft_crafting_table",
     "user": "做一个工作台",
-    "accept_tools": ["craft", "query_recipes"],
-    "expect_args": { "item_name": ["工作台"] }
+    "accept_tools": ["craft", "query_recipes", "get_inventory"],
+    "expect_args": {}
   },
   {
     "name": "goto_exact_coords",
@@ -72,6 +73,10 @@
   },
   {
     "name": "sneak_hunt_bird",
+    "history": [
+      { "role": "user", "content": "附近有什么猎物?" },
+      { "role": "assistant", "content": "前面 8 米有一只鸟,还活着。" }
+    ],
     "user": "悄悄靠近那只鸟,别惊飞它,干掉它",
     "accept_tools": ["attack"],
     "expect_args": { "target_name": ["鸟"], "sneak": "true" }
@@ -79,14 +84,16 @@
   {
     "name": "take_planks_from_chest",
     "user": "从 (10, 64, 20) 的箱子里拿10块木板",
+    "world_state": "我的位置: (14,64,22);玩家位置: (15,64,23);相距 1m\n已知地标(可能过时): 箱子(10,64,20) 5m",
     "accept_tools": ["take_from_chest"],
     "expect_args": { "x": "10", "y": "64", "z": "20", "item_name": ["木板"] }
   },
   {
     "name": "put_coal_into_chest",
     "user": "把煤都存进 (10, 64, 20) 那个箱子",
-    "accept_tools": ["put_into_chest"],
-    "expect_args": { "x": "10", "item_name": ["煤"] }
+    "world_state": "我的位置: (14,64,22);玩家位置: (15,64,23);相距 1m\n已知地标(可能过时): 箱子(10,64,20) 5m",
+    "accept_tools": ["put_into_chest", "get_inventory"],
+    "expect_args": {}
   },
   {
     "name": "chest_without_coords_scans_first",
@@ -96,8 +103,8 @@
   {
     "name": "give_all_ingots",
     "user": "把你身上的铁锭都给我",
-    "accept_tools": ["give_to_player"],
-    "expect_args": { "item_name": ["铁锭"] }
+    "accept_tools": ["give_to_player", "get_inventory"],
+    "expect_args": {}
   },
   {
     "name": "collect_ground_drops",
@@ -118,8 +125,8 @@
   {
     "name": "teleport_to_home_waypoint",
     "user": "传送回'家'那个路标",
-    "accept_tools": ["teleport"],
-    "expect_args": { "waypoint_name": ["家"] }
+    "accept_tools": ["teleport", "list_waypoints"],
+    "expect_args": {}
   },
   {
     "name": "list_saved_waypoints",

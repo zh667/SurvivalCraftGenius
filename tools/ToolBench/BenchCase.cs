@@ -15,6 +15,12 @@ public sealed class BenchCase
     /// <summary>Prior context, roles "user"/"assistant" only.</summary>
     public IReadOnlyList<ChatMessage> History { get; init; } = [];
 
+    /// <summary>
+    /// The world_state body injected before the user message, mirroring the
+    /// production per-turn context. Null uses the runner's default.
+    /// </summary>
+    public string? WorldState { get; init; }
+
     /// <summary>The message under test.</summary>
     public required string User { get; init; }
 
@@ -55,6 +61,7 @@ public sealed class BenchCase
             cases.Add(new BenchCase
             {
                 Name = (string?)entry["name"] ?? throw new InvalidDataException("case missing name"),
+                WorldState = (string?)entry["world_state"],
                 History = history,
                 User = (string?)entry["user"] ?? throw new InvalidDataException("case missing user"),
                 AcceptTools = (entry["accept_tools"] as JArray

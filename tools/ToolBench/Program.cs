@@ -70,8 +70,13 @@ var runs = cases.Select(async benchCase =>
         await throttle.WaitAsync();
         try
         {
+            // Mirror the production message shape: the per-turn world_state
+            // context sits between history and the user message.
+            var worldState = "<world_state>\n"
+                + (benchCase.WorldState ?? "我的位置: (100,64,200);玩家位置: (102,64,201);相距 2m")
+                + "\n</world_state>";
             List<ChatMessage> messages =
-                [ChatMessage.System(GeniusAgent.DefaultSystemPrompt), .. benchCase.History, ChatMessage.User(benchCase.User)];
+                [ChatMessage.System(GeniusAgent.DefaultSystemPrompt), .. benchCase.History, ChatMessage.System(worldState), ChatMessage.User(benchCase.User)];
             var response = await client.CompleteAsync(messages, registry.Tools, CancellationToken.None);
             verdicts[sample] = BenchScorer.Judge(benchCase, response, registry);
         }
@@ -91,10 +96,11 @@ var runs = cases.Select(async benchCase =>
 var results = await Task.WhenAll(runs);
 
 var totalSamples = 0;
-int selection = 0, argsValid = 0, argsMatch = 0, passAtK = 0;
+int selection = 0, argsValid = 0, argsMatch = 0, passAtK = 0, requestFailures = 0;
 foreach (var (benchCase, verdicts) in results.OrderBy(r => r.Case.Name, StringComparer.Ordinal))
 {
     totalSamples += verdicts.Length;
+    requestFailures += verdicts.Count(v => v.Detail.StartsWith("request failed", StringComparison.Ordinal));
     selection += verdicts.Count(v => v.Selection);
     argsValid += verdicts.Count(v => v.ArgsValid);
     argsMatch += verdicts.Count(v => v.ArgsMatch);
@@ -118,6 +124,14 @@ string Pct(int hits) => (100.0 * hits / totalSamples).ToString("F1", CultureInfo
 var passPct = (100.0 * passAtK / results.Length).ToString("F1", CultureInfo.InvariantCulture);
 Console.WriteLine($"TOTAL selection {Pct(selection)}%  pass@{samples} {passPct}%  " +
     $"args_valid {Pct(argsValid)}%  args_match {Pct(argsMatch)}%");
+
+if (requestFailures == totalSamples)
+{
+    // Every request failed (bad key, endpoint down) — that measures the
+    // network, not the model; don't pollute the history with a 0% row.
+    Console.WriteLine("all requests failed — nothing appended to history.csv");
+    return 1;
+}
 
 var historyPath = Path.Combine(benchDir, "history.csv");
 if (!File.Exists(historyPath))
