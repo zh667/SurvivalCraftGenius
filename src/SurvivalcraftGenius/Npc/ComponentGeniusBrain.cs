@@ -281,7 +281,7 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         SpillInventoryIfDead();
         Expedition.Shutdown(this);
         _order?.Finish(died
-            ? "error[died]: I died on the job"
+            ? "error[died]: I died on the job (my inventory is preserved and returns with me on re-summon)"
             : "error[not_summoned]: the companion was removed from the world");
         _order = null;
         base.OnEntityRemoved();
@@ -373,13 +373,44 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         return spilled;
     }
 
-    /// <summary>On death, drop everything carried so the player can recover it.</summary>
+    /// <summary>
+    /// Keep-inventory on death: stashed per owner, restored on the next
+    /// summon (player request — spilled gear next to lava was a second loss
+    /// on top of the death). In-memory only: quitting the game before
+    /// re-summoning drops the stash.
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<
+        string, List<(int Value, int Count)>> DeathStashes = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Removes and returns the pending death stash for an owner, if any.</summary>
+    public static List<(int Value, int Count)>? TakeDeathStash(string ownerId) =>
+        DeathStashes.TryRemove(ownerId ?? "", out var stash) ? stash : null;
+
+    /// <summary>On death, keep everything carried for the next summon.</summary>
     private void SpillInventoryIfDead()
     {
-        if (m_componentCreature.ComponentHealth.Health <= 0f)
+        if (m_componentCreature.ComponentHealth.Health > 0f
+            || m_componentMiner.Inventory is not { } inventory)
         {
-            DeathPosition = m_componentCreature.ComponentBody.Position;
-            SpillInventory();
+            return;
+        }
+
+        DeathPosition = m_componentCreature.ComponentBody.Position;
+        var stash = new List<(int Value, int Count)>();
+        for (var slot = 0; slot < inventory.SlotsCount; slot++)
+        {
+            var value = inventory.GetSlotValue(slot);
+            var count = inventory.GetSlotCount(slot);
+            if (value != 0 && count > 0)
+            {
+                stash.Add((value, count));
+                inventory.RemoveSlotItems(slot, count);
+            }
+        }
+
+        if (stash.Count > 0)
+        {
+            DeathStashes[OwnerPlayerId] = stash;
         }
     }
 }
