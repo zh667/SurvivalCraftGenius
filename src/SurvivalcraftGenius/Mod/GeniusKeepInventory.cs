@@ -12,9 +12,10 @@ namespace SurvivalcraftGenius.Mod;
 /// join after the server started — and only the server evaluates it, so
 /// clients need no matching setting.
 ///
-/// Note: this build has no death XP/level penalty at all (PlayerData.Level is
-/// only ever raised by ComponentLevel or loaded from the save), so "keep
-/// experience" needs no code — dying never costs levels.
+/// On experience: death drops no XP orbs, but the player's LEVEL does come
+/// back lower (playtest-confirmed; level-gated recipes lock up afterwards) —
+/// the static sweep found no code that subtracts it, so we snapshot and
+/// restore instead of trusting the read.
 /// </summary>
 public static class GeniusKeepInventory
 {
@@ -69,9 +70,13 @@ public static class GeniusKeepInventory
         }
 
         if (mode == GeniusSettings.KeepInventoryAll
-            && entity.FindComponent<ComponentPlayer>() is not null)
+            && entity.FindComponent<ComponentPlayer>() is { } componentPlayer)
         {
-            Engine.Log.Information("[Genius] keep-inventory: player death, drops skipped.");
+            // Skipping the drop pass is not enough: the engine destroys the
+            // player entity and respawn builds a fresh empty one, so the
+            // items would simply vanish. Stash them for the respawn.
+            StashPlayerInventory(componentPlayer);
+            Engine.Log.Information("[Genius] keep-inventory: player death, drops skipped and inventory stashed.");
             return true;
         }
 
@@ -86,6 +91,86 @@ public static class GeniusKeepInventory
     /// it came back lower. Costs nothing when nothing was lost.
     /// </summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, float> LevelsAtDeath = new();
+
+    /// <summary>One stashed slot: which IInventory component, which slot, what.</summary>
+    private readonly record struct StashedSlot(int ComponentIndex, int SlotIndex, int Value, int Count);
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<
+        Guid, List<StashedSlot>> InventoriesAtDeath = new();
+
+    /// <summary>
+    /// Copies every IInventory slot (main inventory AND clothing — the same
+    /// set vanilla would have dropped) and empties them, so nothing lingers
+    /// on the doomed entity.
+    /// </summary>
+    private static void StashPlayerInventory(ComponentPlayer componentPlayer)
+    {
+        if (componentPlayer.PlayerData is not { } playerData)
+        {
+            return;
+        }
+
+        var stash = new List<StashedSlot>();
+        var componentIndex = 0;
+        foreach (var inventory in componentPlayer.Entity.FindComponents<IInventory>())
+        {
+            for (var slot = 0; slot < inventory.SlotsCount; slot++)
+            {
+                var value = inventory.GetSlotValue(slot);
+                var count = inventory.GetSlotCount(slot);
+                if (value != 0 && count > 0)
+                {
+                    stash.Add(new StashedSlot(componentIndex, slot, value, count));
+                    inventory.RemoveSlotItems(slot, count);
+                }
+            }
+
+            componentIndex++;
+        }
+
+        if (stash.Count > 0)
+        {
+            InventoriesAtDeath[playerData.PlayerGUID] = stash;
+        }
+    }
+
+    /// <summary>Puts the stash back into the freshly respawned player entity.</summary>
+    public static int RestoreInventoryAfterRespawn(ComponentPlayer? componentPlayer)
+    {
+        if (componentPlayer?.PlayerData is not { } playerData
+            || !InventoriesAtDeath.TryRemove(playerData.PlayerGUID, out var stash))
+        {
+            return 0;
+        }
+
+        var inventories = componentPlayer.Entity.FindComponents<IInventory>().ToList();
+        var restored = 0;
+        foreach (var slot in stash)
+        {
+            if (slot.ComponentIndex >= inventories.Count)
+            {
+                continue;
+            }
+
+            var inventory = inventories[slot.ComponentIndex];
+            if (slot.SlotIndex >= inventory.SlotsCount)
+            {
+                continue;
+            }
+
+            try
+            {
+                inventory.AddSlotItems(slot.SlotIndex, slot.Value, slot.Count);
+                restored += slot.Count;
+            }
+            catch (Exception exception)
+            {
+                Engine.Log.Warning($"[Genius] keep-inventory: slot restore failed: {exception.Message}");
+            }
+        }
+
+        return restored;
+    }
 
     public static void RecordLevelAtDeath(PlayerData? playerData)
     {
