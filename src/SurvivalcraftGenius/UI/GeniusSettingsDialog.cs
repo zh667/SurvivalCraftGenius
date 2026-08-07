@@ -82,7 +82,7 @@ public sealed class GeniusSettingsDialog : Dialog
         stack.Children.Add(_keepInventoryButton);
         stack.Children.Add(new LabelWidget
         {
-            Text = "死亡不掉落规则由开服端决定,对所有人生效(含后加入的玩家);经验本就不会因死亡丢失",
+            Text = "由开服端决定,对所有人生效(含后加入的玩家);全服档同时保住背包、衣服和等级",
             FontScale = 0.55f,
             Color = HintColor,
             Size = new Vector2(680f, 24f),

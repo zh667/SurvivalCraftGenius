@@ -67,8 +67,23 @@ public sealed class GeniusModLoader : ModLoader
     {
         try
         {
-            if (spawnMode == Game.PlayerData.SpawnMode.Respawn
-                && GeniusKeepInventory.RestoreLevelAfterRespawn(componentPlayer) is { } level)
+            if (spawnMode != Game.PlayerData.SpawnMode.Respawn)
+            {
+                return false;
+            }
+
+            var restoredItems = GeniusKeepInventory.RestoreInventoryAfterRespawn(componentPlayer);
+            if (restoredItems > 0)
+            {
+                Engine.Log.Information($"[Genius] keep-inventory: restored {restoredItems} items after respawn.");
+                componentPlayer.ComponentGui?.DisplaySmallMessage(
+                    $"死亡不掉落:已归还 {restoredItems} 件物品",
+                    Engine.Color.White,
+                    blinking: false,
+                    playNotificationSound: false);
+            }
+
+            if (GeniusKeepInventory.RestoreLevelAfterRespawn(componentPlayer) is { } level)
             {
                 Engine.Log.Information($"[Genius] keep-inventory: restored player level {level:0.##} after respawn.");
             }
