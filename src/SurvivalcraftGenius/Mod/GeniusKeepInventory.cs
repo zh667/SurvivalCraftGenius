@@ -92,16 +92,29 @@ public static class GeniusKeepInventory
     /// </summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, float> LevelsAtDeath = new();
 
-    /// <summary>One stashed slot: which IInventory component, which slot, what.</summary>
-    private readonly record struct StashedSlot(int ComponentIndex, int SlotIndex, int Value, int Count);
+    /// <summary>Everything a player carried: backpack slots plus worn layers.</summary>
+    private sealed class PlayerStash
+    {
+        public List<(int Slot, int Value, int Count)> Items { get; } = [];
+
+        public Dictionary<ClothingSlot, List<int>> Clothes { get; } = [];
+
+        public int ItemCount => Items.Sum(entry => entry.Count)
+            + Clothes.Values.Sum(layers => layers.Count);
+    }
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<
-        Guid, List<StashedSlot>> InventoriesAtDeath = new();
+        Guid, PlayerStash> InventoriesAtDeath = new();
 
     /// <summary>
-    /// Copies every IInventory slot (main inventory AND clothing — the same
-    /// set vanilla would have dropped) and empties them, so nothing lingers
-    /// on the doomed entity.
+    /// Copies the real carried goods and empties them off the doomed entity.
+    /// Deliberately NOT a generic IInventory sweep: the player entity also
+    /// carries ComponentCreativeInventory (the whole block palette, 9999 per
+    /// slot — that is where the absurd "15968537 items" came from) and
+    /// ComponentFurnitureInventory (furniture designs, not belongings).
+    /// Clothing needs its own path too: ComponentClothing.AddSlotItems is an
+    /// empty method and GetSlotValue only reports the outermost layer, so
+    /// worn gear must go through GetClothes/SetClothes.
     /// </summary>
     private static void StashPlayerInventory(ComponentPlayer componentPlayer)
     {
@@ -110,9 +123,8 @@ public static class GeniusKeepInventory
             return;
         }
 
-        var stash = new List<StashedSlot>();
-        var componentIndex = 0;
-        foreach (var inventory in componentPlayer.Entity.FindComponents<IInventory>())
+        var stash = new PlayerStash();
+        if (componentPlayer.Entity.FindComponent<ComponentInventory>() is { } inventory)
         {
             for (var slot = 0; slot < inventory.SlotsCount; slot++)
             {
@@ -120,15 +132,26 @@ public static class GeniusKeepInventory
                 var count = inventory.GetSlotCount(slot);
                 if (value != 0 && count > 0)
                 {
-                    stash.Add(new StashedSlot(componentIndex, slot, value, count));
+                    stash.Items.Add((slot, value, count));
                     inventory.RemoveSlotItems(slot, count);
                 }
             }
-
-            componentIndex++;
         }
 
-        if (stash.Count > 0)
+        if (componentPlayer.Entity.FindComponent<ComponentClothing>() is { } clothing)
+        {
+            foreach (ClothingSlot clothingSlot in Enum.GetValues<ClothingSlot>())
+            {
+                var layers = clothing.GetClothes(clothingSlot).ToList();
+                if (layers.Count > 0)
+                {
+                    stash.Clothes[clothingSlot] = layers;
+                    clothing.SetClothes(clothingSlot, []);
+                }
+            }
+        }
+
+        if (stash.ItemCount > 0)
         {
             InventoriesAtDeath[playerData.PlayerGUID] = stash;
         }
@@ -143,29 +166,44 @@ public static class GeniusKeepInventory
             return 0;
         }
 
-        var inventories = componentPlayer.Entity.FindComponents<IInventory>().ToList();
         var restored = 0;
-        foreach (var slot in stash)
+        if (componentPlayer.Entity.FindComponent<ComponentInventory>() is { } inventory)
         {
-            if (slot.ComponentIndex >= inventories.Count)
+            foreach (var (slot, value, count) in stash.Items)
             {
-                continue;
+                try
+                {
+                    if (slot < inventory.SlotsCount && inventory.GetSlotCount(slot) == 0)
+                    {
+                        inventory.AddSlotItems(slot, value, count);
+                        restored += count;
+                    }
+                    else
+                    {
+                        // Slot taken by respawn starting gear: put it anywhere.
+                        restored += count - ComponentInventoryBase.AcquireItems(inventory, value, count);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    Engine.Log.Warning($"[Genius] keep-inventory: item restore failed: {exception.Message}");
+                }
             }
+        }
 
-            var inventory = inventories[slot.ComponentIndex];
-            if (slot.SlotIndex >= inventory.SlotsCount)
+        if (componentPlayer.Entity.FindComponent<ComponentClothing>() is { } clothing)
+        {
+            foreach (var (clothingSlot, layers) in stash.Clothes)
             {
-                continue;
-            }
-
-            try
-            {
-                inventory.AddSlotItems(slot.SlotIndex, slot.Value, slot.Count);
-                restored += slot.Count;
-            }
-            catch (Exception exception)
-            {
-                Engine.Log.Warning($"[Genius] keep-inventory: slot restore failed: {exception.Message}");
+                try
+                {
+                    clothing.SetClothes(clothingSlot, layers);
+                    restored += layers.Count;
+                }
+                catch (Exception exception)
+                {
+                    Engine.Log.Warning($"[Genius] keep-inventory: clothing restore failed: {exception.Message}");
+                }
             }
         }
 
