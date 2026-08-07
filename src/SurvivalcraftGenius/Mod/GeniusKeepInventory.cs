@@ -18,8 +18,23 @@ namespace SurvivalcraftGenius.Mod;
 /// </summary>
 public static class GeniusKeepInventory
 {
+    private static string _mode = GeniusSettings.KeepInventoryCompanion;
+
     /// <summary>Set from the settings store when a world loads (server side).</summary>
-    public static string Mode { get; set; } = GeniusSettings.KeepInventoryCompanion;
+    public static string Mode
+    {
+        get => _mode;
+        set
+        {
+            if (!string.Equals(_mode, value, StringComparison.Ordinal))
+            {
+                _mode = value;
+                // Logged so a playtest can confirm the rule is live from
+                // Game.log alone (v0.9.0 shipped it silently broken).
+                Engine.Log.Information($"[Genius] keep-inventory rule = {value}");
+            }
+        }
+    }
 
     /// <summary>
     /// Returns true when this death should skip the vanilla drop pass.
@@ -49,10 +64,52 @@ public static class GeniusKeepInventory
         {
             // The brain's own removal handler stashes the inventory for the
             // next summon; skipping the drop pass keeps it from spilling too.
+            Engine.Log.Information("[Genius] keep-inventory: companion death, drops skipped.");
             return true;
         }
 
-        return mode == GeniusSettings.KeepInventoryAll
-            && entity.FindComponent<ComponentPlayer>() is not null;
+        if (mode == GeniusSettings.KeepInventoryAll
+            && entity.FindComponent<ComponentPlayer>() is not null)
+        {
+            Engine.Log.Information("[Genius] keep-inventory: player death, drops skipped.");
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Level recorded at death, per player GUID. The static source read shows
+    /// no level-loss code in this build, yet players report losing levels
+    /// across a death (level-gated recipes locking up afterwards) — so in
+    /// "all" mode we snapshot the level at death and restore it on respawn if
+    /// it came back lower. Costs nothing when nothing was lost.
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, float> LevelsAtDeath = new();
+
+    public static void RecordLevelAtDeath(PlayerData? playerData)
+    {
+        if (playerData is not null && Mode == GeniusSettings.KeepInventoryAll)
+        {
+            LevelsAtDeath[playerData.PlayerGUID] = playerData.Level;
+        }
+    }
+
+    /// <summary>Returns the restored level when a loss was repaired, else null.</summary>
+    public static float? RestoreLevelAfterRespawn(ComponentPlayer? componentPlayer)
+    {
+        if (componentPlayer?.PlayerData is not { } playerData
+            || !LevelsAtDeath.TryRemove(playerData.PlayerGUID, out var levelAtDeath))
+        {
+            return null;
+        }
+
+        if (Mode != GeniusSettings.KeepInventoryAll || playerData.Level >= levelAtDeath)
+        {
+            return null;
+        }
+
+        playerData.Level = levelAtDeath;
+        return levelAtDeath;
     }
 }

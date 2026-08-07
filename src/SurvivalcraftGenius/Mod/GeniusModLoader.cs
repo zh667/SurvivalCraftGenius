@@ -48,11 +48,51 @@ public sealed class GeniusModLoader : ModLoader
         }
     }
 
+    /// <summary>Snapshots the level so a respawn can restore it (keep-all mode).</summary>
+    public override void OnPlayerDead(Game.PlayerData playerData)
+    {
+        try
+        {
+            GeniusKeepInventory.RecordLevelAtDeath(playerData);
+        }
+        catch (Exception exception)
+        {
+            Engine.Log.Warning($"[Genius] level snapshot failed: {exception.Message}");
+        }
+    }
+
+    /// <summary>Restores the pre-death level if respawn came back lower.</summary>
+    public override bool OnPlayerSpawned(
+        Game.PlayerData.SpawnMode spawnMode, Game.ComponentPlayer componentPlayer, Engine.Vector3 position)
+    {
+        try
+        {
+            if (spawnMode == Game.PlayerData.SpawnMode.Respawn
+                && GeniusKeepInventory.RestoreLevelAfterRespawn(componentPlayer) is { } level)
+            {
+                Engine.Log.Information($"[Genius] keep-inventory: restored player level {level:0.##} after respawn.");
+            }
+        }
+        catch (Exception exception)
+        {
+            Engine.Log.Warning($"[Genius] level restore failed: {exception.Message}");
+        }
+
+        return false;
+    }
+
     public override void __ModInitialize()
     {
         // Manual registration is mandatory: the game's auto-registration of
         // mod packages never fires (IsSubclassOf on an interface).
         GeniusNetwork.TryRegisterPackage();
+        // Hook overrides are DEAD CODE until registered: ModsManager.HookAction
+        // only walks loaders registered for that hook name (ModsManager.cs:156).
+        // v0.9.0 shipped the override without this line, so keep-inventory
+        // silently did nothing.
+        ModsManager.RegisterHook("DeadBeforeDrops", this);
+        ModsManager.RegisterHook("OnPlayerDead", this);
+        ModsManager.RegisterHook("OnPlayerSpawned", this);
         var version = typeof(GeniusModLoader).Assembly.GetName().Version?.ToString(3) ?? "?";
         Engine.Log.Information($"[Genius] Mod initialized (v{version}).");
     }

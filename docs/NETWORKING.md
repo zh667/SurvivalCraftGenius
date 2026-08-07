@@ -99,3 +99,23 @@
 - 客户端本地执行的工具:say、query_recipes、query_help、read_knowledge、list_waypoints;
   teleport 的路标名在客户端解析成坐标后再上网。
 - 召唤/召回作为伪工具 `_summon`/`_dismiss` 走同一条中转。
+
+## 10. ModLoader 钩子:**必须显式注册,否则 override 是死代码**
+
+`ModsManager.HookAction(name, ...)`(ModsManager.cs:156)**只遍历注册过该钩子名的 loader**;
+没注册的 mod,即使正确 override 了方法也永远不会被调用(v0.9.0 的死亡不掉落就是这么静默失效的)。
+
+```csharp
+public override void __ModInitialize()
+{
+    ModsManager.RegisterHook("DeadBeforeDrops", this);   // 缺这行 = 功能不存在
+    ModsManager.RegisterHook("OnPlayerDead", this);
+    ModsManager.RegisterHook("OnPlayerSpawned", this);
+}
+```
+
+原版自己也这么写(`SurvivalCraftModLoader.__ModInitialize` 注册了 4 个钩子)。
+**新增任何 ModLoader override 时,第一件事是回到 __ModInitialize 补注册,并加一条生效日志便于实测验证。**
+
+常用钩子:`DeadBeforeDrops(ComponentHealth, out bool Skip)`(死亡瞬间,服务端,Skip=true 取消全部掉落)、
+`OnPlayerDead(PlayerData)`、`OnPlayerSpawned(SpawnMode, ComponentPlayer, Vector3)`、`OnCreatureInjure`、`OnLevelUpdate`。
