@@ -77,7 +77,7 @@ public sealed class GeniusModLoader : ModLoader
             {
                 Engine.Log.Information($"[Genius] keep-inventory: restored {restoredItems} items after respawn.");
                 componentPlayer.ComponentGui?.DisplaySmallMessage(
-                    $"死亡不掉落:已归还 {restoredItems} 件物品",
+                    "死亡不掉落:背包和装备已归还",
                     Engine.Color.White,
                     blinking: false,
                     playNotificationSound: false);
