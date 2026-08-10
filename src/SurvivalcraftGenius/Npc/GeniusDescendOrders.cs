@@ -45,6 +45,14 @@ public sealed class DescendOrder(int targetY, string? lookingFor = null) : Geniu
     private Point3? _stepTarget;
     private float _stepElapsed;
     private bool _walking;
+    private int _recarves;
+
+    /// <summary>
+    /// How many times one step may be re-dug after loose material falls back
+    /// in. Roughly the height of sand column worth clearing before it is
+    /// cheaper to move sideways than to keep shovelling.
+    /// </summary>
+    private const int MaxRecarvesPerStep = 8;
 
     protected override float TimeoutSeconds => 900f;
 
@@ -97,8 +105,32 @@ public sealed class DescendOrder(int targetY, string? lookingFor = null) : Geniu
                 _walking = false;
                 _stepTarget = null;
                 _stepElapsed = 0f;
+                _recarves = 0;
                 _levelsDug++;
                 GrabDrops(brain);
+                return null;
+            }
+
+            // Sand and gravel pour back into the shaft the moment it opens, so
+            // "I carved it" is not the same as "it is still carved" (playtest 8:
+            // "沙子 is still blocking (22,72,20)" three levels down, twice).
+            // Drop back to digging instead of walking into a wall until the
+            // timeout — but cap the reruns so an endless sand column ends the
+            // order with an answer rather than burning the whole budget.
+            if (_stepTarget is not null && FirstBlockedCell(brain, _stepTarget) is not null)
+            {
+                if (++_recarves > MaxRecarvesPerStep)
+                {
+                    return $"error[blocked]: loose material keeps pouring into the shaft at " +
+                        $"({feet.X},{feet.Y},{feet.Z}) — I re-dug it {_recarves} times and it " +
+                        $"refills every time (dug down {_levelsDug} levels)" +
+                        Obstruction(brain, _stepTarget) +
+                        ". There is a sand/gravel column above me: move me sideways " +
+                        "(goto a spot 8-10 blocks away, or teleport) and descend_to there";
+                }
+
+                _walking = false;
+                _stepElapsed = 0f;
                 return null;
             }
 
@@ -135,48 +167,78 @@ public sealed class DescendOrder(int targetY, string? lookingFor = null) : Geniu
             }
         }
 
-        var direction = Directions[_directionIndex % Directions.Length];
-        var next = new Point3(feet.X + direction.X, feet.Y - 1, feet.Z + direction.Z);
-
-        if (HazardNear(terrain, next) is { } hazard)
+        // Pick the next step only when we do not already have one. A re-carve
+        // (sand fell back in) must keep digging the SAME column — recomputing
+        // it from _directionIndex would rotate to a different one and leave a
+        // half-open staircase behind.
+        if (_stepTarget is null)
         {
-            // Try the other three directions before giving up: lava pockets sit
-            // right above the diamond band (y15-20), so meeting one is normal.
-            for (var attempt = 1; attempt < Directions.Length; attempt++)
+            var direction = Directions[_directionIndex % Directions.Length];
+            var next = new Point3(feet.X + direction.X, feet.Y - 1, feet.Z + direction.Z);
+
+            if (HazardNear(terrain, next) is { } hazard)
             {
-                var alternative = Directions[(_directionIndex + attempt) % Directions.Length];
-                var candidate = new Point3(feet.X + alternative.X, feet.Y - 1, feet.Z + alternative.Z);
-                if (HazardNear(terrain, candidate) is null)
+                // Try the other three directions before giving up: lava pockets sit
+                // right above the diamond band (y15-20), so meeting one is normal.
+                for (var attempt = 1; attempt < Directions.Length; attempt++)
                 {
-                    _directionIndex = (_directionIndex + attempt) % Directions.Length;
-                    return null;
+                    var alternative = Directions[(_directionIndex + attempt) % Directions.Length];
+                    var candidate = new Point3(feet.X + alternative.X, feet.Y - 1, feet.Z + alternative.Z);
+                    if (HazardNear(terrain, candidate) is null)
+                    {
+                        _directionIndex = (_directionIndex + attempt) % Directions.Length;
+                        return null;
+                    }
                 }
+
+                return $"error[blocked]: {hazard} right below me at y={feet.Y} " +
+                    $"(dug down {_levelsDug} levels) — I stopped rather than dig into it";
             }
 
-            return $"error[blocked]: {hazard} right below me at y={feet.Y} " +
-                $"(dug down {_levelsDug} levels) — I stopped rather than dig into it";
+            _stepTarget = next;
+            _recarves = 0;
         }
 
         // Carve a body-sized opening in the next column, then step in.
+        if (FirstBlockedCell(brain, _stepTarget) is { } blocked)
+        {
+            _digger.Start(brain, blocked);
+            return null;
+        }
+
+        _walking = true;
+        _stepElapsed = 0f;
+        _directionIndex++;
+        return null;
+    }
+
+    /// <summary>
+    /// The first cell of the step column that is still solid, top-down, or null
+    /// when the whole body-sized opening is clear. Used both to drive the dig
+    /// and to notice loose material falling back in mid-walk.
+    /// </summary>
+    private static Point3? FirstBlockedCell(ComponentGeniusBrain brain, Point3? stepTarget)
+    {
+        if (stepTarget is not { } target)
+        {
+            return null;
+        }
+
+        var terrain = brain.SubsystemTerrain.Terrain;
         foreach (var height in CarveHeights)
         {
-            var cell = new Point3(next.X, next.Y + height, next.Z);
-            if (cell.Y > 255)
+            var y = target.Y + height;
+            if (y is < 0 or > 255)
             {
                 continue;
             }
 
-            if (Terrain.ExtractContents(terrain.GetCellValue(cell.X, cell.Y, cell.Z)) != 0)
+            if (Terrain.ExtractContents(terrain.GetCellValue(target.X, y, target.Z)) != 0)
             {
-                _digger.Start(brain, cell);
-                return null;
+                return new Point3(target.X, y, target.Z);
             }
         }
 
-        _stepTarget = next;
-        _walking = true;
-        _stepElapsed = 0f;
-        _directionIndex++;
         return null;
     }
 

@@ -199,7 +199,7 @@ public static class ToolCatalog
             NoParameters));
         registry.Register(new GeniusToolDefinition(
             "teleport",
-            "Instantly teleport yourself to a TravelMap waypoint (by name) or to coordinates. Prefer destinations near the player or previously visited areas.",
+            "Instantly teleport yourself to a TravelMap waypoint (by name) or to coordinates. The y you give is honoured, including underground: solid rock is opened into a small pocket to stand in, so this is the fastest way down to an ore band. Refused only next to lava or inside player-built blocks. Also the way out when you are walled in and may not dig.",
             """
             {"type":"object","properties":{
               "waypoint_name":{"type":"string","description":"Waypoint name substring; takes priority over x/y/z."},

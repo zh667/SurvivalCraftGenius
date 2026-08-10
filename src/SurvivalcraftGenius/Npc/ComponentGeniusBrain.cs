@@ -93,6 +93,13 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     /// </summary>
     public Vector3? PendingTeleportHover { get; set; }
 
+    /// <summary>
+    /// The cell the pending hover is actually aiming for, so the landing can
+    /// honour the requested Y (including underground) instead of defaulting to
+    /// the surface once the chunk arrives.
+    /// </summary>
+    public Point3? PendingTeleportTarget { get; set; }
+
     /// <summary>Self-preservation reflexes that outbid orders for the body.</summary>
     public GeniusInstincts Instincts { get; } = new();
 
@@ -143,10 +150,22 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
             var hoverCell = Terrain.ToCell(hover);
             if (m_subsystemTerrain.Terrain.GetChunkAtCell(hoverCell.X, hoverCell.Z) is not null)
             {
-                var top = m_subsystemTerrain.Terrain.GetTopHeight(hoverCell.X, hoverCell.Z);
-                body.Position = new Vector3(hoverCell.X + 0.5f, top + 1.5f, hoverCell.Z + 0.5f);
+                // Land where the caller actually asked to land. This used to
+                // always snap to the surface, which silently discarded the Y —
+                // so a teleport into an unloaded ore band came back 40 blocks
+                // too high and the model had to burn another call (playtest 8).
+                var landing = PendingTeleportTarget is { } wanted
+                    ? GeniusTeleportLanding.Resolve(this, wanted)
+                    : default;
+                body.Position = landing.Error is null && PendingTeleportTarget is not null
+                    ? landing.Position + new Vector3(0f, 0.5f, 0f)
+                    : new Vector3(
+                        hoverCell.X + 0.5f,
+                        m_subsystemTerrain.Terrain.GetTopHeight(hoverCell.X, hoverCell.Z) + 1.5f,
+                        hoverCell.Z + 0.5f);
                 body.Velocity = Vector3.Zero;
                 PendingTeleportHover = null;
+                PendingTeleportTarget = null;
             }
             else
             {
