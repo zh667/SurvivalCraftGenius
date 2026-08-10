@@ -158,5 +158,33 @@
     "name": "no_eat_tool_honest_refusal",
     "user": "你饿不饿?吃点东西吧",
     "accept_tools": ["say"]
+  },
+  {
+    "name": "locate_ore_before_digging",
+    "user": "附近有铁矿吗?在哪",
+    "world_state": "我的位置: (-54,110,181);玩家位置: (-50,110,183);相距 4m",
+    "accept_tools": ["find_blocks"],
+    "expect_args": { "name": ["铁", "铁矿"] }
+  },
+  {
+    "name": "descend_to_ore_band_not_manual_digging",
+    "user": "地表找不到铁矿,下去深层找",
+    "world_state": "我的位置: (-54,110,181);玩家位置: (-50,110,183);相距 4m",
+    "accept_tools": ["descend_to", "find_blocks"],
+    "expect_args": {}
+  },
+  {
+    "name": "deep_target_uses_descend_not_goto",
+    "user": "挖到 y=30 那么深去找矿",
+    "world_state": "我的位置: (71,105,539);玩家位置: (73,105,540);相距 2m",
+    "accept_tools": ["descend_to"],
+    "expect_args": { "y": "30" }
+  },
+  {
+    "name": "long_distance_prefers_teleport",
+    "user": "回我这边来,你在四百多米外呢,坐标 (100, 70, 200)",
+    "world_state": "我的位置: (71,73,539);玩家位置: (100,70,200);相距 376m",
+    "accept_tools": ["teleport", "goto"],
+    "expect_args": {}
   }
 ]

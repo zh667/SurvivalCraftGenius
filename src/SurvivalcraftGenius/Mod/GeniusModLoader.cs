@@ -31,9 +31,10 @@ public sealed class GeniusModLoader : ModLoader
     }
 
     /// <summary>
-    /// Engine hook at the death moment (ComponentHealth, server side). Skip=true
-    /// cancels the vanilla drop pass — this is what makes keep-inventory apply
-    /// to every player, including ones who join later.
+    /// Engine hook at the death moment (ComponentHealth, server side). We empty
+    /// the protected inventories here and always leave Skip=false: cancelling
+    /// the drop pass also cancels DeathTime, which leaves the corpse undespawnable
+    /// and every behavior inactive (see GeniusKeepInventory).
     /// </summary>
     public override void DeadBeforeDrops(Game.ComponentHealth componentHealth, out bool Skip)
     {
@@ -48,16 +49,23 @@ public sealed class GeniusModLoader : ModLoader
         }
     }
 
-    /// <summary>Snapshots the level so a respawn can restore it (keep-all mode).</summary>
+    /// <summary>
+    /// Undoes the vanilla level halving (SurvivalCraftModLoader.OnPlayerDead
+    /// runs Level = max(floor(Level/2), 1)). Only effective if our hook runs
+    /// after the game's own — the respawn pass below is the guaranteed one.
+    /// </summary>
     public override void OnPlayerDead(Game.PlayerData playerData)
     {
         try
         {
-            GeniusKeepInventory.RecordLevelAtDeath(playerData);
+            if (GeniusKeepInventory.RestoreLevel(playerData, consume: false) is { } level)
+            {
+                Engine.Log.Information($"[Genius] keep-inventory: level kept at {level:0.##} through death.");
+            }
         }
         catch (Exception exception)
         {
-            Engine.Log.Warning($"[Genius] level snapshot failed: {exception.Message}");
+            Engine.Log.Warning($"[Genius] level restore failed: {exception.Message}");
         }
     }
 
@@ -83,9 +91,14 @@ public sealed class GeniusModLoader : ModLoader
                     playNotificationSound: false);
             }
 
-            if (GeniusKeepInventory.RestoreLevelAfterRespawn(componentPlayer) is { } level)
+            if (GeniusKeepInventory.RestoreLevel(componentPlayer?.PlayerData, consume: true) is { } level)
             {
                 Engine.Log.Information($"[Genius] keep-inventory: restored player level {level:0.##} after respawn.");
+                componentPlayer?.ComponentGui?.DisplaySmallMessage(
+                    $"死亡不掉落:等级已保留({level:0.##})",
+                    Engine.Color.White,
+                    blinking: false,
+                    playNotificationSound: false);
             }
         }
         catch (Exception exception)
