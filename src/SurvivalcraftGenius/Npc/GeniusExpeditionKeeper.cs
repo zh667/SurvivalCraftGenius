@@ -23,7 +23,17 @@ public sealed class GeniusExpeditionKeeper
     private const int UpdateLocationIndex = 910_007;
     private const float ActivateDistance = 40f;
     private const float DeactivateDistance = 32f;
-    private const float LoadRadius = 24f;
+    /// <summary>
+    /// How far terrain exists around a lone NPC — and therefore the hard limit
+    /// on how wide find_blocks can see out here. The engine keeps 64 blocks of
+    /// content around each player camera and FREES every chunk past the
+    /// furthest update location, so this number IS the companion's horizon.
+    /// Raised from 24 once the request below stopped asking for render
+    /// geometry: content-only chunks reach TerrainChunkState.InvalidVertices1
+    /// (cells, light, block behaviors, spawns — everything simulation needs)
+    /// and skip vertex buffer generation entirely, which is the expensive part.
+    /// </summary>
+    private const float LoadRadius = 48f;
     private const float ProtectRadius = 48f;
     private const float ReleaseRadius = 56f;
     private const int ChunkRange = 2;
@@ -84,8 +94,12 @@ public sealed class GeniusExpeditionKeeper
                 $"[Genius] Expedition keeper ON at {myPosition} ({nearestPlayer:0}m from nearest player).");
         }
 
+        // visibilityDistance 0, contentDistance LoadRadius — the engine's own
+        // headless pattern (PlayerData asks for 0/64 while a player is still
+        // loading). Nobody renders from the NPC's eyes, so asking for geometry
+        // was pure waste; content-only chunks carry the whole simulation.
         brain.SubsystemTerrain.TerrainUpdater.SetUpdateLocation(
-            UpdateLocationIndex, new Vector2(myPosition.X, myPosition.Z), LoadRadius, LoadRadius);
+            UpdateLocationIndex, new Vector2(myPosition.X, myPosition.Z), 0f, LoadRadius);
         KeepChunksAlive(brain, spawn, creatureSpawn, myPosition, now);
         ProtectFromDespawn(spawn, myPosition);
     }

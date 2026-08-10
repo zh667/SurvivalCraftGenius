@@ -65,13 +65,14 @@ public static class ToolCatalog
             """));
         registry.Register(new GeniusToolDefinition(
             "find_blocks",
-            "Pinpoint search: exact coordinates of every block with this name within up to 32m, nearest first. "
+            "Pinpoint search: exact coordinates of every block with this name within up to 64m, nearest first. "
             + "Use this BEFORE mining to know where the ore actually is instead of digging blindly. "
-            + "For ores it automatically searches that ore's whole generation depth band and tells you the band if nothing is there.",
+            + "For ores it automatically searches that ore's whole generation depth band and tells you the band if nothing is there. "
+            + "64m is the engine's own limit — terrain does not exist further out, and the answer says how far it really reached.",
             """
             {"type":"object","properties":{
               "name":{"type":"string","description":"Block name substring, e.g. 铁矿/coal/花岗岩."},
-              "radius":{"type":"integer","description":"Horizontal search radius in blocks, 4-32. Default 16."}},
+              "radius":{"type":"integer","description":"Horizontal search radius in blocks, 4-64. Default 32."}},
              "required":["name"]}
             """));
         registry.Register(new GeniusToolDefinition(
