@@ -354,5 +354,24 @@
       "teleport"
     ],
     "expect_args": {}
+  },
+  {
+    "name": "build_house_uses_builder",
+    "user": "在这附近给我盖个小屋",
+    "world_state": "我的位置: (-35,114,195);玩家位置: (-36,114,194);相距 1m",
+    "accept_tools": [
+      "build_shelter",
+      "find_build_site"
+    ],
+    "expect_args": {}
+  },
+  {
+    "name": "farm_site_survey_first",
+    "user": "找块合适的地方开农田，别又开在悬空的石头上",
+    "world_state": "我的位置: (-43,114,193);玩家位置: (-44,114,193);相距 1m",
+    "accept_tools": [
+      "find_build_site"
+    ],
+    "expect_args": {}
   }
 ]

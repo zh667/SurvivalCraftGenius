@@ -77,6 +77,9 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         ["AttackOrder"] = "战斗",
         ["MineResourceOrder"] = "挖矿远征",
         ["DescendOrder"] = "下潜挖井",
+        ["TillSoilOrder"] = "翻地",
+        ["PlantSeedOrder"] = "播种",
+        ["BuildShelterOrder"] = "盖房",
     };
 
     /// <summary>Set when the companion dies; cleared by the next summon.</summary>
@@ -935,7 +938,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     private static readonly HashSet<string> LongRunningTools = new(StringComparer.Ordinal)
     {
         "mine_resource", "goto", "craft", "smelt", "collect_items", "dig_block", "take_from_chest",
-        "descend_to", "till_soil", "plant_seed",
+        "descend_to", "till_soil", "plant_seed", "build_shelter",
     };
 
     private Task<string> ExecuteToolOnMainThread(string name, JObject arguments)
@@ -1036,6 +1039,42 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 }
 
                 var order = new DescendOrder(targetY, (string?)arguments["looking_for"]);
+                brain.StartOrder(order);
+                return order.Completion;
+            }
+
+            case "find_build_site":
+            {
+                var siteWidth = (int?)arguments["width"] ?? 5;
+                var siteLength = (int?)arguments["length"] ?? 5;
+                var forFarm = string.Equals(
+                    (string?)arguments["purpose"], "farm", StringComparison.OrdinalIgnoreCase);
+                var searchRadius = Math.Clamp((int?)arguments["radius"] ?? 16, 2, 48);
+                var found = GeniusSiteSurvey.FindBest(
+                    brain, Math.Clamp(siteWidth, 1, 16), Math.Clamp(siteLength, 1, 16),
+                    searchRadius, forFarm);
+                return Task.FromResult(found is { } site
+                    ? $"best {siteWidth}x{siteLength} {(forFarm ? "farm" : "build")} site: " +
+                      $"({site.Origin.X},{site.GroundY},{site.Origin.Z}) — {site.Note}, " +
+                      $"光照{site.Light}. Use exactly this x/y/z"
+                    : $"error[not_found]: no {siteWidth}x{siteLength} spot within {searchRadius}m is " +
+                      (forFarm
+                          ? "flat soil in daylight — farmland needs grass/dirt ground and light>=9; " +
+                            "try a smaller plot, or move to open grassland"
+                          : "flat and solid enough to build on — try a smaller footprint or move me"));
+            }
+
+            case "build_shelter":
+            {
+                Point3? origin = arguments["x"] is not null && arguments["z"] is not null
+                    ? ReadPoint(arguments)
+                    : null;
+                var order = new BuildShelterOrder(
+                    origin,
+                    (int?)arguments["width"] ?? 5,
+                    (int?)arguments["length"] ?? 5,
+                    (int?)arguments["wall_height"] ?? 3,
+                    (string?)arguments["material"]);
                 brain.StartOrder(order);
                 return order.Completion;
             }
