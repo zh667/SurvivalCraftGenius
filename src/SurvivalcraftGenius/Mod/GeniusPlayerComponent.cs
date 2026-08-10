@@ -85,6 +85,12 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     private static readonly Color LiveColor = new(168, 230, 160);
     private static readonly Color DeadColor = new(240, 140, 130);
 
+    /// <summary>When the companion was last summoned; drives the "I'm alive again" note.</summary>
+    private double _resummonedAt = double.NegativeInfinity;
+
+    /// <summary>How long that note keeps overriding a stale error[died] in the history.</summary>
+    private const double ResummonNoteSeconds = 300.0;
+
     public UpdateOrder UpdateOrder => UpdateOrder.Default;
 
     public IReadOnlyList<GeniusChatLine> ChatLog => _chatLog;
@@ -294,6 +300,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             // companion; FindBrain filters on this.
             var ownerId = m_componentPlayer.PlayerData.PlayerGUID.ToString("N");
             _companionDead = false;
+            _resummonedAt = Time.FrameStartTime;
             var newBrain = entity.FindComponent<ComponentGeniusBrain>(throwOnError: false);
             if (newBrain is not null)
             {
@@ -664,6 +671,16 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 brain!.Creature.ComponentBody.Position, m_componentPlayer.ComponentBody.Position);
             lines.Add($"我的位置: ({npc.X},{npc.Y},{npc.Z});玩家位置: " +
                 $"({playerCell.X},{playerCell.Y},{playerCell.Z});相距 {distance:0}m");
+            // The history still holds the error[died] from the last life, and
+            // the model kept believing it: 20 seconds after being re-summoned
+            // it answered "我现在还是阵亡状态,无法行动。请先重新召唤我"
+            // (playtest 8). A position line alone was not enough to override an
+            // explicit tool error, so say it outright for a while.
+            if (Time.FrameStartTime - _resummonedAt < ResummonNoteSeconds)
+            {
+                lines.Add("我刚被重新召唤,现在活着、可以正常行动——" +
+                    "上文里的 error[died] 属于上一条命,已经失效,不要再说自己阵亡或要求玩家召唤");
+            }
             // Survives player respawns: the new agent instance immediately
             // sees what the (still running) body is doing.
             if (brain.CurrentOrderLabel is { } orderLabel)
@@ -1053,45 +1070,26 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                     // terrain exists). Hover in the sky; the brain snaps to
                     // the surface once the expedition keeper loads the chunk.
                     brain.PendingTeleportHover = new Vector3(destCell.X + 0.5f, 150f, destCell.Z + 0.5f);
+                    brain.PendingTeleportTarget = destCell;
                     brain.Creature.ComponentBody.Position = brain.PendingTeleportHover.Value;
                     brain.Creature.ComponentBody.Velocity = Vector3.Zero;
                     return Task.FromResult(
-                        $"teleporting to ({destCell.X}, ?, {destCell.Z}) — the area is still loading; " +
-                        "I hover safely and will land on the surface within a few seconds. " +
-                        "Wait a moment, then scan before acting.");
+                        $"teleporting to ({destCell.X}, {destCell.Y}, {destCell.Z}) — the area is still " +
+                        "loading; I hover safely and drop to that spot within a few seconds " +
+                        "(underground targets included). Wait a moment, then scan before acting.");
                 }
 
+                var landing = GeniusTeleportLanding.Resolve(brain, destCell);
+                if (landing.Error is { } landingError)
                 {
-                    // Landing guard: the model guesses Y over unseen terrain —
-                    // playtest 2 ended with a fatal fall at a guessed y=70.
-                    // Keep deliberate cave targets (air pocket with ground
-                    // close below); snap everything else to the surface.
-                    var top = terrain.GetTopHeight(destCell.X, destCell.Z);
-                    var feetFree = !BlocksManager.Blocks[Terrain.ExtractContents(
-                        terrain.GetCellValue(destCell.X, destCell.Y, destCell.Z))].IsCollidable;
-                    var headFree = !BlocksManager.Blocks[Terrain.ExtractContents(
-                        terrain.GetCellValue(destCell.X, destCell.Y + 1, destCell.Z))].IsCollidable;
-                    var groundNear = false;
-                    for (var below = 1; below <= 3 && !groundNear; below++)
-                    {
-                        groundNear = BlocksManager.Blocks[Terrain.ExtractContents(
-                            terrain.GetCellValue(destCell.X, destCell.Y - below, destCell.Z))].IsCollidable;
-                    }
-
-                    if (!feetFree || !headFree || !groundNear)
-                    {
-                        destination = new Vector3(destCell.X + 0.5f, top + 1, destCell.Z + 0.5f);
-                    }
+                    return Task.FromResult(landingError);
                 }
 
+                destination = landing.Position;
                 brain.Creature.ComponentBody.Position = destination + new Vector3(0f, 0.5f, 0f);
                 return Task.FromResult(
                     $"teleported to ({(int)destination.X}, {(int)destination.Y}, {(int)destination.Z})" +
-                    (loaded
-                        ? ""
-                        : "; note: this area is still loading — it will load around me within " +
-                          "a few seconds (I keep the world alive on expeditions); wait a moment, " +
-                          "then scan again before acting"));
+                    landing.Note);
             }
 
             case "dig_block":

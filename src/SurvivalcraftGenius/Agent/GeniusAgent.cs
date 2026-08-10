@@ -46,6 +46,9 @@ public sealed class GeniusAgent
           descend_to 只管"原地垂直下潜到某个深度",用于下矿层。往下超过约 15 格时 goto 规划不出路线,必须换 descend_to,
           自己 dig_block+goto 一格格往下挖更是浪费整个回合。
         - 几十米以上的长途优先 teleport。goto 连续两次 no_path 就改用 descend_to 或 teleport,不要原样重试。
+        - **teleport 能直接落到地下**:给什么 y 就去什么 y,是实心岩层就自动开个容身的小洞,
+          所以要下矿层最快的办法是 teleport 到 (x, 矿层y, z),不必先挖梯井。只有岩浆旁和玩家的建筑里会拒绝。
+          被困住时(周围全是玩家的建筑、不许挖)也直接 teleport 出去,不要卡在原地报错。
         - 判断工具看数据不看名字:get_inventory 返回 quarry/shovel/hack/melee 数值,quarry>1 就能当镐用(比如石锤)。
         - 缺工具或材料时按顺序自力更生,不要一上来就找玩家要:
           1) get_inventory 查背包;2) scan 找到附近箱子,逐个 take_from_chest 搜;
