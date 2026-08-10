@@ -64,6 +64,28 @@ public static class ToolCatalog
              "required":["resource_name"]}
             """));
         registry.Register(new GeniusToolDefinition(
+            "find_blocks",
+            "Pinpoint search: exact coordinates of every block with this name within up to 32m, nearest first. "
+            + "Use this BEFORE mining to know where the ore actually is instead of digging blindly. "
+            + "For ores it automatically searches that ore's whole generation depth band and tells you the band if nothing is there.",
+            """
+            {"type":"object","properties":{
+              "name":{"type":"string","description":"Block name substring, e.g. 铁矿/coal/花岗岩."},
+              "radius":{"type":"integer","description":"Horizontal search radius in blocks, 4-32. Default 16."}},
+             "required":["name"]}
+            """));
+        registry.Register(new GeniusToolDefinition(
+            "descend_to",
+            "Dig a walkable spiral staircase straight down to a target depth, stopping short of lava or water. "
+            + "This is the way to reach an ore band — goto with dig_through cannot plan a route that deep. "
+            + "Give looking_for to have me run find_blocks the moment I arrive.",
+            """
+            {"type":"object","properties":{
+              "y":{"type":"integer","description":"Target depth (block Y) to reach."},
+              "looking_for":{"type":"string","description":"Optional block name to search for on arrival."}},
+             "required":["y"]}
+            """));
+        registry.Register(new GeniusToolDefinition(
             "follow_player",
             "Start following the player continuously. Ends when any new task order (goto/dig/craft/...) starts or teleport is used; call again to resume.",
             NoParameters));

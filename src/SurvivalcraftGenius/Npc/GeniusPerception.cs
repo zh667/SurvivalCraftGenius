@@ -16,6 +16,112 @@ public static class GeniusPerception
     private const int MaxRarePositions = 25;
     private const float CreatureScanRange = 16f;
 
+    private const int FindMaxRadius = 32;
+    private const int FindMaxResults = 12;
+
+    /// <summary>
+    /// Pinpoint search: exact coordinates of every block matching a name in a
+    /// wide box, nearest first. scan_surroundings only reaches 8m and hides
+    /// common blocks behind counts, which left the model guessing where the ore
+    /// was and tunnelling blind (playtest: "他挖矿的方式我没看懂").
+    /// For known ores the vertical sweep is clamped to the ore's generation
+    /// band, which both cuts the cell reads and makes an empty result
+    /// meaningful ("not here" rather than "not in the 8 blocks I looked at").
+    /// </summary>
+    public static string FindBlocks(ComponentGeniusBrain brain, string query, int radius)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return "error[invalid_argument]: give a block name to look for, e.g. 铁矿/coal/花岗岩";
+        }
+
+        radius = Math.Clamp(radius, 4, FindMaxRadius);
+        var terrain = brain.SubsystemTerrain.Terrain;
+        var myPosition = brain.Creature.ComponentBody.Position;
+        var center = Terrain.ToCell(myPosition);
+        var band = GeniusOreBands.Match(query);
+        // Ore: sweep its whole band. Anything else: a slab around me, since a
+        // full 255-tall column times a 65x65 footprint is a million cell reads
+        // on the main thread.
+        var minY = Math.Max(1, band?.MinY ?? center.Y - radius);
+        var maxY = Math.Min(255, band?.MaxY ?? center.Y + radius);
+
+        var hits = new List<(Point3 Cell, string Name, float DistanceSquared)>();
+        var seenNames = new HashSet<string>();
+        var matchKinds = new Dictionary<int, string?>();
+        var scannedColumns = 0;
+        var unloadedColumns = 0;
+        for (var dx = -radius; dx <= radius; dx++)
+        {
+            for (var dz = -radius; dz <= radius; dz++)
+            {
+                var x = center.X + dx;
+                var z = center.Z + dz;
+                if (terrain.GetChunkAtCell(x, z) is null)
+                {
+                    unloadedColumns++;
+                    continue;
+                }
+
+                scannedColumns++;
+                for (var y = minY; y <= maxY; y++)
+                {
+                    var value = terrain.GetCellValue(x, y, z);
+                    var contents = Terrain.ExtractContents(value);
+                    if (contents == 0)
+                    {
+                        continue;
+                    }
+
+                    if (!matchKinds.TryGetValue(contents, out var matchedName))
+                    {
+                        var block = BlocksManager.Blocks[contents];
+                        var displayName = block.GetDisplayName(brain.SubsystemTerrain, value);
+                        var craftingId = block.GetCraftingId(value) ?? "";
+                        seenNames.Add(displayName);
+                        matchedName =
+                            displayName.Contains(query, StringComparison.OrdinalIgnoreCase)
+                            || craftingId.Contains(query, StringComparison.OrdinalIgnoreCase)
+                                ? displayName
+                                : null;
+                        matchKinds[contents] = matchedName;
+                    }
+
+                    if (matchedName is null)
+                    {
+                        continue;
+                    }
+
+                    var ddx = x + 0.5f - myPosition.X;
+                    var ddy = y + 0.5f - myPosition.Y;
+                    var ddz = z + 0.5f - myPosition.Z;
+                    hits.Add((new Point3(x, y, z), matchedName, ddx * ddx + ddy * ddy + ddz * ddz));
+                }
+            }
+        }
+
+        if (hits.Count == 0)
+        {
+            var suggestions = Agent.NameSuggest.Clause(query, seenNames);
+            var unloaded = unloadedColumns > scannedColumns / 4
+                ? $"; {unloadedColumns} of the columns were not loaded yet — the world loads around players and around me"
+                : "";
+            return $"no '{query}' within {radius}m (searched y{minY}-{maxY} around " +
+                $"({center.X},{center.Y},{center.Z})){suggestions}{unloaded}" +
+                GeniusOreBands.Hint(query, myPosition.Y);
+        }
+
+        hits.Sort((a, b) => a.DistanceSquared.CompareTo(b.DistanceSquared));
+        var nearest = hits.Take(FindMaxResults).Select(hit =>
+            $"{hit.Name}({hit.Cell.X},{hit.Cell.Y},{hit.Cell.Z}) {Math.Sqrt(hit.DistanceSquared):0}m");
+        var deepest = hits.Min(hit => hit.Cell.Y);
+        var shallowest = hits.Max(hit => hit.Cell.Y);
+        return $"found {hits.Count} matching blocks within {radius}m (y{deepest}-{shallowest}); " +
+            $"nearest: {string.Join(", ", nearest)}" +
+            (hits.Count > FindMaxResults ? $" (+{hits.Count - FindMaxResults} more)" : "") +
+            "; mine_resource digs these automatically, or goto/dig_block one by one";
+    }
+
     public static string ScanSurroundings(ComponentGeniusBrain brain, ComponentBody? playerBody)
     {
         var terrain = brain.SubsystemTerrain.Terrain;

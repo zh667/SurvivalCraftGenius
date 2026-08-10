@@ -315,36 +315,11 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
     }
 
     /// <summary>
-    /// Ore generation bands (engine terrain generator): the usual reason a
-    /// search finds nothing is standing at the surface while the ore lives
-    /// deep in basalt.
+    /// Ore generation bands live in GeniusOreBands so find_blocks, descend_to
+    /// and this order all quote the same table.
     /// </summary>
-    private static string OreDepthHint(string query, float myY)
-    {
-        if (query.Contains('铁') || query.Contains('硫') || query.Contains('锗'))
-        {
-            return $"; hint: 铁/硫/锗矿只生成在 y2-40 的玄武岩深层(我现在在 y={(int)myY})" +
-                " — goto(dig_through=true) 挖到 y≤35 再搜";
-        }
-
-        if (query.Contains("钻石"))
-        {
-            return $"; hint: 钻石矿只生成在 y2-15 的玄武岩最深层(我在 y={(int)myY};y15-20 常有岩浆,导航会绕)" +
-                " — 先挖到 y≤15 再搜";
-        }
-
-        if (query.Contains('铜') || query.Contains("孔雀"))
-        {
-            return $"; hint: 铜(孔雀石)矿生成在 y20-65 的花岗岩层(我在 y={(int)myY})";
-        }
-
-        if (query.Contains('硝'))
-        {
-            return "; hint: 硝石只生成在 y50-90 的砂岩层(沙漠地下)";
-        }
-
-        return "";
-    }
+    private static string OreDepthHint(string query, float myY) =>
+        GeniusOreBands.Hint(query, myY);
 
     /// <summary>
     /// Refuses only truly hopeless grinds. The threshold sits ABOVE bare-hand

@@ -169,6 +169,19 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
 
         if (_order is not null)
         {
+            // Dead bodies cannot act: ComponentBehaviorSelector picks no
+            // behavior at all while Health == 0, so IsActive is false for every
+            // behavior. Without this check the order reports "endangered",
+            // which reads as "busy fleeing" and had the model waiting for a
+            // recovery that can never come.
+            if (m_componentCreature.ComponentHealth.Health <= 0f)
+            {
+                _order.Finish("error[died]: I was killed. Everything I carried is kept for the next "
+                    + "summon — tell the player to summon me again; I cannot act until then");
+                _order = null;
+                return;
+            }
+
             if (!IsActive)
             {
                 // A higher-priority behavior (fleeing at low health, importance
@@ -284,6 +297,14 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
             ? "error[died]: I died on the job (my inventory is preserved and returns with me on re-summon)"
             : "error[not_summoned]: the companion was removed from the world");
         _order = null;
+        if (died)
+        {
+            // The player has no other way to learn about it: the body simply
+            // stops existing, and a chat reply from a dead companion is worse
+            // than silence (playtest: "AI没血了还能和我对话").
+            CompanionDied?.Invoke(OwnerPlayerId, m_componentCreature.ComponentBody.Position);
+        }
+
         base.OnEntityRemoved();
     }
 
@@ -345,62 +366,70 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     public string? CurrentOrderLabel => _order?.GetType().Name;
 
     /// <summary>
-    /// Drops everything carried onto the ground. Called on death AND on
-    /// dismissal — despawning used to silently destroy the inventory
-    /// (playtest 4: wood and stone vanished after a 收回/重新召唤 cycle).
-    /// </summary>
-    public bool SpillInventory()
-    {
-        if (m_componentMiner.Inventory is not { } inventory)
-        {
-            return false;
-        }
-
-        var spilled = false;
-        var position = m_componentCreature.ComponentBody.Position + new Vector3(0f, 0.5f, 0f);
-        for (var slot = 0; slot < inventory.SlotsCount; slot++)
-        {
-            var value = inventory.GetSlotValue(slot);
-            var count = inventory.GetSlotCount(slot);
-            if (value != 0 && count > 0)
-            {
-                m_subsystemPickables.AddPickable(value, count, position, null, null);
-                inventory.RemoveSlotItems(slot, count);
-                spilled = true;
-            }
-        }
-
-        return spilled;
-    }
-
-    /// <summary>
-    /// Keep-inventory on death: stashed per owner, restored on the next
-    /// summon (player request — spilled gear next to lava was a second loss
-    /// on top of the death). In-memory only: quitting the game before
-    /// re-summoning drops the stash.
+    /// Kept gear, per owner: filled on death and on dismissal, handed back by
+    /// the next summon. Persisted alongside the world's conversation memory —
+    /// dismissing, quitting and coming back tomorrow must not eat the backpack.
     /// </summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<
         string, List<(int Value, int Count)>> DeathStashes = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Removes and returns the pending death stash for an owner, if any.</summary>
-    public static List<(int Value, int Count)>? TakeDeathStash(string ownerId) =>
-        DeathStashes.TryRemove(ownerId ?? "", out var stash) ? stash : null;
-
     /// <summary>
-    /// On death, keep everything carried for the next summon. Runs even when
-    /// the keep-inventory rule is off: the drop pass has already happened by
-    /// removal time, so the stash is simply empty in that case.
+    /// Raised whenever a stash changes so the owner can persist it. An event,
+    /// not a settable delegate: on a server every player has their own
+    /// GeniusPlayerComponent and a plain assignment would leave only the last
+    /// one wired up.
     /// </summary>
-    private void SpillInventoryIfDead()
+    public static event Action? StashesChanged;
+
+    /// <summary>Raised when a companion dies, with its owner id and death spot.</summary>
+    public static event Action<string, Vector3>? CompanionDied;
+
+    /// <summary>Removes and returns the pending stash for an owner, if any.</summary>
+    public static List<(int Value, int Count)>? TakeDeathStash(string ownerId)
     {
-        if (m_componentCreature.ComponentHealth.Health > 0f
-            || m_componentMiner.Inventory is not { } inventory)
+        if (!DeathStashes.TryRemove(ownerId ?? "", out var stash))
         {
-            return;
+            return null;
         }
 
-        DeathPosition = m_componentCreature.ComponentBody.Position;
-        var stash = new List<(int Value, int Count)>();
+        StashesChanged?.Invoke();
+        return stash;
+    }
+
+    /// <summary>Whole-table access for the persistence layer (server side only).</summary>
+    public static IReadOnlyDictionary<string, List<(int Value, int Count)>> SnapshotStashes() =>
+        DeathStashes.ToDictionary(pair => pair.Key, pair => pair.Value);
+
+    /// <summary>Replaces the in-memory table with what a world's save file held.</summary>
+    public static void LoadStashes(IReadOnlyDictionary<string, List<(int Value, int Count)>> stashes)
+    {
+        DeathStashes.Clear();
+        foreach (var (ownerId, items) in stashes)
+        {
+            if (items.Count > 0)
+            {
+                DeathStashes[ownerId] = [.. items];
+            }
+        }
+    }
+
+    /// <summary>
+    /// Moves everything carried into the owner's stash and returns how many
+    /// items were kept. Used by both exits from the world — dying (called from
+    /// the keep-inventory hook, before the engine's drop pass) and being
+    /// dismissed (playtest: 收回 left the whole backpack lying on the ground).
+    /// Merges instead of overwriting, so dying twice never erases the first
+    /// stash.
+    /// </summary>
+    public int StashCarriedItems()
+    {
+        if (m_componentMiner.Inventory is not { } inventory)
+        {
+            return 0;
+        }
+
+        var stash = DeathStashes.TryGetValue(OwnerPlayerId, out var existing) ? existing : [];
+        var kept = 0;
         for (var slot = 0; slot < inventory.SlotsCount; slot++)
         {
             var value = inventory.GetSlotValue(slot);
@@ -409,13 +438,34 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
             {
                 stash.Add((value, count));
                 inventory.RemoveSlotItems(slot, count);
+                kept += count;
             }
         }
 
         if (stash.Count > 0)
         {
             DeathStashes[OwnerPlayerId] = stash;
+            StashesChanged?.Invoke();
         }
+
+        return kept;
+    }
+
+    /// <summary>
+    /// Safety net at removal time. With keep-inventory on, the death hook has
+    /// already emptied the inventory and this finds nothing; with the rule off
+    /// the engine's drop pass got there first. Either way it records where the
+    /// body fell, for gear recovery.
+    /// </summary>
+    private void SpillInventoryIfDead()
+    {
+        if (m_componentCreature.ComponentHealth.Health > 0f)
+        {
+            return;
+        }
+
+        DeathPosition = m_componentCreature.ComponentBody.Position;
+        StashCarriedItems();
     }
 }
 

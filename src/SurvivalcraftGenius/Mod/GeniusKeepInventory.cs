@@ -12,10 +12,27 @@ namespace SurvivalcraftGenius.Mod;
 /// join after the server started — and only the server evaluates it, so
 /// clients need no matching setting.
 ///
-/// On experience: death drops no XP orbs, but the player's LEVEL does come
-/// back lower (playtest-confirmed; level-gated recipes lock up afterwards) —
-/// the static sweep found no code that subtracts it, so we snapshot and
-/// restore instead of trusting the read.
+/// HOW IT KEEPS THINGS — and why it must NOT set Skip=true (v0.9.4):
+/// ComponentHealth's death block does four things together. Skipping it does
+/// cancel the drops, but it also skips `DeathTime = TotalElapsedGameTime`, and
+/// the corpse cleanup one line below reads
+/// `TotalElapsedGameTime - DeathTime > CorpseDuration` on a `double?` that is
+/// still null — a null comparison is always false, so the body NEVER despawns.
+/// ComponentBehaviorSelector then picks no behavior at all while Health == 0,
+/// leaving every behavior IsActive=false. That is exactly the playtest
+/// symptom: the companion sat at 0 HP for 20 minutes, still able to chat but
+/// answering every order with "endangered".
+/// So instead of skipping the death, we EMPTY the inventories first and let
+/// the engine's own death path run in full: the vanilla drop pass then finds
+/// nothing to drop, DeathTime is set, the corpse despawns, and the player's
+/// entity is saved normally.
+///
+/// On experience: death drops no XP orbs, but SurvivalCraftModLoader.OnPlayerDead
+/// runs `Level = max(floor(Level / 2), 1)` — the level is HALVED, permanently.
+/// Our own OnPlayerDead hook cannot see the pre-death value (the game's loader
+/// registers first and therefore halves first), so the snapshot is taken here,
+/// at the death moment, a frame before PlayerData's state machine reaches
+/// "PlayerDead".
 /// </summary>
 public static class GeniusKeepInventory
 {
@@ -38,9 +55,10 @@ public static class GeniusKeepInventory
     }
 
     /// <summary>
-    /// Returns true when this death should skip the vanilla drop pass.
-    /// Companion deaths are stashed by the brain itself; players simply keep
-    /// what they carry (inventory and clothing alike).
+    /// Runs at the death moment, before the vanilla drop pass. Empties whatever
+    /// the rule protects so the drop pass has nothing left to scatter, and
+    /// always returns false — the engine's death sequence must run to the end
+    /// (see the class comment).
     /// </summary>
     public static bool ShouldKeepInventory(ComponentHealth componentHealth)
     {
@@ -50,45 +68,37 @@ public static class GeniusKeepInventory
         }
 
         var entity = componentHealth.Entity;
-        if (entity is null)
+        if (entity is null || Mode == GeniusSettings.KeepInventoryOff)
         {
             return false;
         }
 
-        var mode = Mode;
-        if (mode == GeniusSettings.KeepInventoryOff)
+        if (entity.FindComponent<Npc.ComponentGeniusBrain>() is { } brain)
         {
+            var kept = brain.StashCarriedItems();
+            Engine.Log.Information(
+                $"[Genius] keep-inventory: companion died, {kept} items kept for the next summon.");
             return false;
         }
 
-        if (entity.FindComponent<Npc.ComponentGeniusBrain>() is not null)
-        {
-            // The brain's own removal handler stashes the inventory for the
-            // next summon; skipping the drop pass keeps it from spilling too.
-            Engine.Log.Information("[Genius] keep-inventory: companion death, drops skipped.");
-            return true;
-        }
-
-        if (mode == GeniusSettings.KeepInventoryAll
+        if (Mode == GeniusSettings.KeepInventoryAll
             && entity.FindComponent<ComponentPlayer>() is { } componentPlayer)
         {
-            // Skipping the drop pass is not enough: the engine destroys the
-            // player entity and respawn builds a fresh empty one, so the
-            // items would simply vanish. Stash them for the respawn.
+            // Emptying is not optional: the engine destroys the player entity
+            // and respawn builds a fresh empty one, so anything still in the
+            // slots at this point is gone either way. Stash it for the respawn.
+            RecordLevelAtDeath(componentPlayer.PlayerData);
             StashPlayerInventory(componentPlayer);
-            Engine.Log.Information("[Genius] keep-inventory: player death, drops skipped and inventory stashed.");
-            return true;
+            Engine.Log.Information("[Genius] keep-inventory: player died, belongings stashed for respawn.");
         }
 
         return false;
     }
 
     /// <summary>
-    /// Level recorded at death, per player GUID. The static source read shows
-    /// no level-loss code in this build, yet players report losing levels
-    /// across a death (level-gated recipes locking up afterwards) — so in
-    /// "all" mode we snapshot the level at death and restore it on respawn if
-    /// it came back lower. Costs nothing when nothing was lost.
+    /// Level recorded at death, per player GUID. Death halves the level in
+    /// SurvivalCraftModLoader.OnPlayerDead; in "all" mode we put it back on
+    /// respawn. Costs nothing when nothing was lost.
     /// </summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, float> LevelsAtDeath = new();
 
@@ -210,6 +220,12 @@ public static class GeniusKeepInventory
         return restored;
     }
 
+    /// <summary>
+    /// Snapshots the pre-halving level. Called from the death moment, not from
+    /// our OnPlayerDead hook: hooks dispatch in registration order and the
+    /// game's own loader registers first, so by the time we see OnPlayerDead
+    /// the level has already been halved.
+    /// </summary>
     public static void RecordLevelAtDeath(PlayerData? playerData)
     {
         if (playerData is not null && Mode == GeniusSettings.KeepInventoryAll)
@@ -218,16 +234,26 @@ public static class GeniusKeepInventory
         }
     }
 
-    /// <summary>Returns the restored level when a loss was repaired, else null.</summary>
-    public static float? RestoreLevelAfterRespawn(ComponentPlayer? componentPlayer)
+    /// <summary>
+    /// Returns the restored level when a loss was repaired, else null. Called
+    /// twice — right after the death (so the death screen and any level-gated
+    /// UI already read the right number) and again on respawn, whichever wins.
+    /// </summary>
+    public static float? RestoreLevel(PlayerData? playerData, bool consume)
     {
-        if (componentPlayer?.PlayerData is not { } playerData
-            || !LevelsAtDeath.TryRemove(playerData.PlayerGUID, out var levelAtDeath))
+        if (playerData is null
+            || Mode != GeniusSettings.KeepInventoryAll
+            || !LevelsAtDeath.TryGetValue(playerData.PlayerGUID, out var levelAtDeath))
         {
             return null;
         }
 
-        if (Mode != GeniusSettings.KeepInventoryAll || playerData.Level >= levelAtDeath)
+        if (consume)
+        {
+            LevelsAtDeath.TryRemove(playerData.PlayerGUID, out _);
+        }
+
+        if (playerData.Level >= levelAtDeath)
         {
             return null;
         }

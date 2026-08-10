@@ -42,6 +42,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     private GeniusKnowledgeStore _knowledgeStore = null!;
     private GeniusSettings _settings = null!;
     private ConversationStore? _conversationStore;
+    private StashStore? _stashStore;
     private string? _worldKey;
     private int _worldSeed;
     private bool _restoreAnnounced;
@@ -346,11 +347,56 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         }
 
         brain.StopMoving();
-        var spilled = brain.SpillInventory();
+        // Keep the backpack with the companion instead of dumping it on the
+        // ground (playtest: "召回他他的物品留在原处"). The stash is saved to the
+        // world file, so it survives quitting the game too.
+        var kept = brain.StashCarriedItems();
         brain.Creature.ComponentSpawn.Despawn();
-        AppendLog(GeniusChatRole.Info, spilled
-            ? "Genius 已收回(它把背包里的东西倒在了原地,记得捡)。"
+        AppendLog(GeniusChatRole.Info, kept > 0
+            ? "Genius 已收回,背包里的东西替它收着,下次召唤原样带回。"
             : "Genius 已收回。");
+    }
+
+    /// <summary>Persists the kept-gear table whenever it changes (server side).</summary>
+    private void SaveStashes()
+    {
+        if (_stashStore is null || _worldKey is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _stashStore.Save(_worldKey, _worldSeed, ComponentGeniusBrain.SnapshotStashes());
+        }
+        catch (Exception exception)
+        {
+            Log.Warning($"[Genius] stash save failed: {exception.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Tells the owner their companion is gone. Without this the death is
+    /// invisible: the body just stops existing, and the chat window keeps
+    /// answering as if nothing happened.
+    /// </summary>
+    private void AnnounceCompanionDeath(string ownerId, Vector3 deathPosition)
+    {
+        if (m_componentPlayer?.PlayerData is not { } playerData
+            || !string.Equals(ownerId, playerData.PlayerGUID.ToString("N"), StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var cell = Terrain.ToCell(deathPosition);
+        AppendLog(
+            GeniusChatRole.Info,
+            $"⚰ Genius 阵亡于 ({cell.X},{cell.Y},{cell.Z})。它带的东西都替它收好了,重新召唤即可原样带回。");
+        m_componentPlayer.ComponentGui?.DisplaySmallMessage(
+            "Genius 阵亡,请重新召唤",
+            Color.White,
+            blinking: true,
+            playNotificationSound: true);
     }
 
     public void SaveSettings(GeniusSettings settings)
@@ -392,6 +438,18 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 Storage.GetSystemPath("data:/SurvivalcraftGenius/conversations"));
             _worldKey = gameInfo.DirectoryName;
             _worldSeed = gameInfo.WorldSeed;
+            if (_workType != WorkType.Client)
+            {
+                _stashStore = new StashStore(
+                    Storage.GetSystemPath("data:/SurvivalcraftGenius/conversations"));
+                ComponentGeniusBrain.LoadStashes(_stashStore.Load(_worldKey, _worldSeed));
+                ComponentGeniusBrain.StashesChanged += SaveStashes;
+            }
+        }
+
+        if (_workType != WorkType.Client)
+        {
+            ComponentGeniusBrain.CompanionDied += AnnounceCompanionDeath;
         }
 
         Log.Information($"[Genius] Player component loaded (workType={_workType}).");
@@ -399,6 +457,8 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
 
     public override void OnEntityRemoved()
     {
+        ComponentGeniusBrain.StashesChanged -= SaveStashes;
+        ComponentGeniusBrain.CompanionDied -= AnnounceCompanionDeath;
         _lifetime.Cancel();
         _dialog = null;
         _statusHud?.ParentWidget?.Children.Remove(_statusHud);
@@ -805,6 +865,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     private static readonly HashSet<string> LongRunningTools = new(StringComparer.Ordinal)
     {
         "mine_resource", "goto", "craft", "smelt", "collect_items", "dig_block", "take_from_chest",
+        "descend_to",
     };
 
     private Task<string> ExecuteToolOnMainThread(string name, JObject arguments)
@@ -890,6 +951,24 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 return RunResilientMiningAsync(
                     (string?)arguments["resource_name"] ?? "",
                     (int?)arguments["count"] ?? 1);
+
+            case "find_blocks":
+                return Task.FromResult(GeniusPerception.FindBlocks(
+                    brain,
+                    (string?)arguments["name"] ?? "",
+                    (int?)arguments["radius"] ?? 16));
+
+            case "descend_to":
+            {
+                if ((int?)arguments["y"] is not { } targetY)
+                {
+                    return Task.FromResult("error[invalid_argument]: give the target depth as y");
+                }
+
+                var order = new DescendOrder(targetY, (string?)arguments["looking_for"]);
+                brain.StartOrder(order);
+                return order.Completion;
+            }
 
             case "list_waypoints":
             {
