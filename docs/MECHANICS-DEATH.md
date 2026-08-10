@@ -104,3 +104,30 @@ v0.9.0 的"死亡不掉落完全没生效"就是这个原因。详见 `NETWORKIN
 - `ComponentGeniusBrain.CompanionDied` 事件 —— 阵亡时主动告诉主人,并附上阵亡坐标。
 - 大脑 `UpdateCore` 在 `Health <= 0` 时直接以 `error[died]` 结束指令,
   不再报会被误读成"稍等就好"的 `endangered`。
+
+## 7. 死因:引擎其实记了,但只对玩家署名
+
+`ComponentHealth` 有两个来源,组合起来才够用:
+
+| 来源 | 内容 | 局限 |
+|---|---|---|
+| `CauseOfDeath`(`string`) | 伤害**类型**的本地化描述,`Injure(..., cause)` 传进来的那句 | 只有凶手是**另一个玩家**时才会写成"被 xx 击败了";被狼咬死只剩类型 |
+| `Attacked` 事件(`Action<ComponentCreature>`) | 攻击者本体,可取 `DisplayName` | `NetInjure` 里**只在 `attacker != null` 时触发**——摔死/淹死/岩浆不会触发 |
+
+正因为第二条,"最近几秒内有没有 `Attacked`"恰好等价于"是被打死的还是自己作死的"。
+Genius 记下最后一次攻击者和时间(`AttackerMemorySeconds = 10`),
+死亡时和 `CauseOfDeath` 拼成一句:`被咬伤(凶手:狼)`。
+
+`ComponentHealth.Update` 里的伤害(饿、冻、淹、摔)`attacker` 都是 null,
+所以拿不到凶手时**不能瞎猜**,如实报"死因不明"。
+
+playtest 7 的原话:守护灵被问"你是怎么阵亡的",只能答
+"系统只返回阵亡,没说明是生物攻击、坠落还是别的原因"——那时 `error[died]` 里确实什么都没带。
+现在坐标和死因都写进 `error[died]`,同时进聊天记录和屏幕提示。
+
+## 8. 尸体还在的那几秒,UI 会撒谎
+
+从致命一击到实体被移除中间有十几秒(`CorpseDuration`)。这段时间里 `ComponentGeniusBrain` 仍然存在、
+仍然持有最后一个 order,状态栏于是照旧显示"挖掘中"——
+玩家看到的是"守护灵阵亡之后旁边还显示他在干什么,容易以为他还在工作"。
+所以 HUD 必须把 `Health <= 0` 当成**最高优先级**的状态,压过 order 标签和"思考中"。

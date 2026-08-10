@@ -30,6 +30,11 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     private float _suppressedTime;
     private double _nextVacuumTime;
     private readonly Dictionary<string, int> _recentPickups = [];
+    private string? _lastAttackerName;
+    private double _lastAttackedTime;
+
+    /// <summary>How long after a hit we still blame the attacker for the death.</summary>
+    private const double AttackerMemorySeconds = 10.0;
 
     public UpdateOrder UpdateOrder => UpdateOrder.Default;
 
@@ -176,8 +181,11 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
             // recovery that can never come.
             if (m_componentCreature.ComponentHealth.Health <= 0f)
             {
-                _order.Finish("error[died]: I was killed. Everything I carried is kept for the next "
-                    + "summon — tell the player to summon me again; I cannot act until then");
+                var cell = Terrain.ToCell(m_componentCreature.ComponentBody.Position);
+                _order.Finish($"error[died]: I was killed at ({cell.X},{cell.Y},{cell.Z}) — "
+                    + $"{DeathCauseOrUnknown()}. Everything I carried is kept for the next "
+                    + "summon — tell the player how I died and ask them to summon me again; "
+                    + "I cannot act until then");
                 _order = null;
                 return;
             }
@@ -261,7 +269,59 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         m_componentMiner = Entity.FindComponent<ComponentMiner>(throwOnError: true)!;
         // Same hook vanilla creatures use for retaliation (ComponentChaseBehavior).
         m_componentCreature.ComponentHealth.Attacked += Instincts.NotifyAttacked;
+        m_componentCreature.ComponentHealth.Attacked += RecordAttacker;
     }
+
+    /// <summary>
+    /// Remembers who hit us last. ComponentHealth.CauseOfDeath records the
+    /// KIND of damage ("被咬伤"), but only names a killer when the killer is
+    /// another player — for a wolf or a hyena it stays anonymous, which is why
+    /// the companion could only answer "系统只返回阵亡,没说明原因" when asked how
+    /// it died. The engine raises Attacked solely for attacker != null, so a
+    /// recent entry here is exactly "something killed me" vs "I fell/drowned".
+    /// </summary>
+    private void RecordAttacker(ComponentCreature? attacker)
+    {
+        if (attacker is null)
+        {
+            return;
+        }
+
+        _lastAttackerName = attacker is ComponentPlayer player
+            ? player.PlayerData?.Name ?? attacker.DisplayName
+            : attacker.DisplayName;
+        _lastAttackedTime = m_subsystemTime.GameTime;
+    }
+
+    /// <summary>
+    /// A human-readable cause of death: the engine's own damage description
+    /// plus the attacker, when one landed a hit in the last few seconds.
+    /// Returns null while alive or when nothing is known.
+    /// </summary>
+    public string? DeathCause()
+    {
+        if (m_componentCreature.ComponentHealth.Health > 0f)
+        {
+            return null;
+        }
+
+        var cause = m_componentCreature.ComponentHealth.CauseOfDeath;
+        var killer = _lastAttackerName is { Length: > 0 } name
+            && m_subsystemTime.GameTime - _lastAttackedTime <= AttackerMemorySeconds
+                ? name
+                : null;
+
+        return (cause, killer) switch
+        {
+            ({ Length: > 0 }, not null) => $"{cause}(凶手:{killer})",
+            ({ Length: > 0 }, null) => cause,
+            (_, not null) => $"被{killer}杀死",
+            _ => null,
+        };
+    }
+
+    /// <summary>Where the death happened, for the player-facing announcement.</summary>
+    public string DeathCauseOrUnknown() => DeathCause() ?? "死因不明(没有留下伤害记录)";
 
     public override void OnEntityAdded()
     {
@@ -293,8 +353,10 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
             $"health={m_componentCreature.ComponentHealth.Health}, died={died}).");
         SpillInventoryIfDead();
         Expedition.Shutdown(this);
+        var cause = died ? DeathCauseOrUnknown() : null;
         _order?.Finish(died
-            ? "error[died]: I died on the job (my inventory is preserved and returns with me on re-summon)"
+            ? $"error[died]: I died on the job — {cause} (my inventory is preserved and returns "
+                + "with me on re-summon)"
             : "error[not_summoned]: the companion was removed from the world");
         _order = null;
         if (died)
@@ -302,7 +364,8 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
             // The player has no other way to learn about it: the body simply
             // stops existing, and a chat reply from a dead companion is worse
             // than silence (playtest: "AI没血了还能和我对话").
-            CompanionDied?.Invoke(OwnerPlayerId, m_componentCreature.ComponentBody.Position);
+            CompanionDied?.Invoke(
+                OwnerPlayerId, m_componentCreature.ComponentBody.Position, cause!);
         }
 
         base.OnEntityRemoved();
@@ -363,6 +426,13 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
 
     public bool IsFollowing => _followTarget is not null;
 
+    /// <summary>
+    /// True from the killing blow until the corpse is removed. The HUD needs
+    /// this window: for those seconds the brain still exists and still reports
+    /// its last order, which reads as "still working".
+    /// </summary>
+    public bool IsDead => m_componentCreature.ComponentHealth.Health <= 0f;
+
     public string? CurrentOrderLabel => _order?.GetType().Name;
 
     /// <summary>
@@ -381,8 +451,8 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     /// </summary>
     public static event Action? StashesChanged;
 
-    /// <summary>Raised when a companion dies, with its owner id and death spot.</summary>
-    public static event Action<string, Vector3>? CompanionDied;
+    /// <summary>Raised when a companion dies, with its owner id, death spot and cause.</summary>
+    public static event Action<string, Vector3, string>? CompanionDied;
 
     /// <summary>Removes and returns the pending stash for an owner, if any.</summary>
     public static List<(int Value, int Count)>? TakeDeathStash(string ownerId)

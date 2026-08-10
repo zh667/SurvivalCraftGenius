@@ -76,7 +76,14 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         ["GiveToPlayerOrder"] = "交付",
         ["AttackOrder"] = "战斗",
         ["MineResourceOrder"] = "挖矿远征",
+        ["DescendOrder"] = "下潜挖井",
     };
+
+    /// <summary>Set when the companion dies; cleared by the next summon.</summary>
+    private bool _companionDead;
+
+    private static readonly Color LiveColor = new(168, 230, 160);
+    private static readonly Color DeadColor = new(240, 140, 130);
 
     public UpdateOrder UpdateOrder => UpdateOrder.Default;
 
@@ -151,8 +158,15 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             _statusHud = new LabelWidget
             {
                 Text = "",
-                FontScale = 0.62f,
-                Color = new Color(168, 230, 160),
+                // Was 0.62. The status line is Chinese, and the bundled font is
+                // a BITMAP atlas — shrinking it resamples every glyph, which
+                // dense characters do not survive: 思/考 collapsed into one
+                // smear the player read as overlapping text. Measured advance
+                // was a uniform 17px with no glyph sharing a column, so the
+                // problem was resolution, not layout. The engine's own HUD
+                // labels sit at 0.7-1.0; stay inside that range.
+                FontScale = 0.85f,
+                Color = LiveColor,
                 HorizontalAlignment = WidgetAlignment.Near,
                 VerticalAlignment = WidgetAlignment.Near,
                 Margin = new Vector2(12f, 96f),
@@ -168,8 +182,19 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
 
         _nextStatusUpdateTime = Time.FrameStartTime + 0.25;
         string? status = null;
+        var color = LiveColor;
         var brain = FindBrain();
-        if (brain?.CurrentOrderLabel is { } orderName)
+        // Death wins over everything. A corpse still holds its last order for
+        // the few seconds before the entity is removed, and the agent keeps
+        // "thinking" while it composes the death report — both used to render
+        // as "挖掘中"/"思考中" next to a companion that no longer exists
+        // ("阵亡之后旁边还显示守护灵在干什么,容易让用户以为他还在工作").
+        if (_companionDead || brain?.IsDead == true)
+        {
+            status = "✖ 守护灵:已阵亡 — 需重新召唤";
+            color = DeadColor;
+        }
+        else if (brain?.CurrentOrderLabel is { } orderName)
         {
             status = OrderLabels.TryGetValue(orderName, out var label)
                 ? $"◆ 守护灵:{label}中"
@@ -185,6 +210,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         }
 
         _statusHud.IsVisible = status is not null;
+        _statusHud.Color = color;
         _statusHud.Text = status ?? "";
     }
 
@@ -267,6 +293,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             // Ownership: in multiplayer each player commands only their own
             // companion; FindBrain filters on this.
             var ownerId = m_componentPlayer.PlayerData.PlayerGUID.ToString("N");
+            _companionDead = false;
             var newBrain = entity.FindComponent<ComponentGeniusBrain>(throwOnError: false);
             if (newBrain is not null)
             {
@@ -380,7 +407,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     /// invisible: the body just stops existing, and the chat window keeps
     /// answering as if nothing happened.
     /// </summary>
-    private void AnnounceCompanionDeath(string ownerId, Vector3 deathPosition)
+    private void AnnounceCompanionDeath(string ownerId, Vector3 deathPosition, string cause)
     {
         if (m_componentPlayer?.PlayerData is not { } playerData
             || !string.Equals(ownerId, playerData.PlayerGUID.ToString("N"), StringComparison.OrdinalIgnoreCase))
@@ -388,12 +415,14 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             return;
         }
 
+        _companionDead = true;
         var cell = Terrain.ToCell(deathPosition);
         AppendLog(
             GeniusChatRole.Info,
-            $"⚰ Genius 阵亡于 ({cell.X},{cell.Y},{cell.Z})。它带的东西都替它收好了,重新召唤即可原样带回。");
+            $"⚰ Genius 阵亡于 ({cell.X},{cell.Y},{cell.Z}),{cause}。" +
+            "它带的东西都替它收好了,重新召唤即可原样带回。");
         m_componentPlayer.ComponentGui?.DisplaySmallMessage(
-            "Genius 阵亡,请重新召唤",
+            $"Genius 阵亡({cause}),请重新召唤",
             Color.White,
             blinking: true,
             playNotificationSound: true);

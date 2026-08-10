@@ -17,19 +17,26 @@ namespace SurvivalcraftGenius.Npc;
 /// The staircase rotates through the four compass directions so the shaft
 /// stays inside a 2x2 footprint AND is walkable back up — a plain 1x1 drop
 /// shaft would strand the companion at the bottom.
+///
+/// Playtest 7 (v0.9.6) footnote: every single descend_to call failed with
+/// "could not step down into the shaft" after 0-3 levels, because the carve
+/// below only opened two cells. See <see cref="CarveHeights"/>.
 /// </summary>
 public sealed class DescendOrder(int targetY, string? lookingFor = null) : GeniusOrder
 {
     /// <summary>Steps between hazard rescans; also the stuck-check window.</summary>
     private const float StepTimeoutSeconds = 20f;
 
+    /// <summary>
+    /// Heights to clear in the next column, relative to the landing cell. See
+    /// <see cref="GeniusDescentGeometry.CarveHeights"/> — it lives there so the
+    /// solid-rock simulation in the tests exercises the same numbers this order
+    /// digs with. Opening only two of the three was the v0.9.5 bug.
+    /// </summary>
+    private static readonly int[] CarveHeights = GeniusDescentGeometry.CarveHeights;
+
     private static readonly Point3[] Directions =
-    [
-        new(1, 0, 0),
-        new(0, 0, 1),
-        new(-1, 0, 0),
-        new(0, 0, -1),
-    ];
+        [.. GeniusDescentGeometry.Directions.Select(d => new Point3(d.X, 0, d.Z))];
 
     private readonly TimedDigger _digger = new();
     private int _directionIndex;
@@ -70,6 +77,17 @@ public sealed class DescendOrder(int targetY, string? lookingFor = null) : Geniu
                 $"after digging down {_levelsDug} levels";
         }
 
+        // Standing in water: every cell around me is water, so the hazard check
+        // below can only ever refuse. Playtest 7: the model teleported into an
+        // ocean, got "水 right below me", and retried the identical call twice
+        // because nothing told it what would actually help.
+        if (brain.Creature.ComponentBody.ImmersionFluidBlock is WaterBlock)
+        {
+            return $"error[blocked]: I'm in water at y={feet.Y} — a shaft dug from here just " +
+                "floods and I drown. Get me onto dry land first: scan_surroundings or " +
+                "look_around to find a shore, goto it, then descend_to again";
+        }
+
         // Walking into the step we just carved out.
         if (_walking)
         {
@@ -87,8 +105,9 @@ public sealed class DescendOrder(int targetY, string? lookingFor = null) : Geniu
             if (_stepElapsed > StepTimeoutSeconds)
             {
                 return $"error[blocked]: I could not step down into the shaft at " +
-                    $"({feet.X},{feet.Y},{feet.Z}) after digging {_levelsDug} levels — " +
-                    "something is in the way; move me and retry";
+                    $"({feet.X},{feet.Y},{feet.Z}) after digging {_levelsDug} levels" +
+                    Obstruction(brain, _stepTarget) +
+                    "; teleport or goto me somewhere else and call descend_to again";
             }
 
             if (_stepTarget is { } destination)
@@ -138,10 +157,15 @@ public sealed class DescendOrder(int targetY, string? lookingFor = null) : Geniu
                 $"(dug down {_levelsDug} levels) — I stopped rather than dig into it";
         }
 
-        // Carve feet cell and headroom, then step in. The cell at next.Y+1 is
-        // level with my own feet, so both are needed for the body to fit.
-        foreach (var cell in new[] { new Point3(next.X, next.Y + 1, next.Z), next })
+        // Carve a body-sized opening in the next column, then step in.
+        foreach (var height in CarveHeights)
         {
+            var cell = new Point3(next.X, next.Y + height, next.Z);
+            if (cell.Y > 255)
+            {
+                continue;
+            }
+
             if (Terrain.ExtractContents(terrain.GetCellValue(cell.X, cell.Y, cell.Z)) != 0)
             {
                 _digger.Start(brain, cell);
@@ -167,6 +191,40 @@ public sealed class DescendOrder(int targetY, string? lookingFor = null) : Geniu
         }
 
         return summary + ". " + GeniusPerception.FindBlocks(brain, lookingFor!, 32);
+    }
+
+    /// <summary>
+    /// Names whatever is still solid in the column we tried to step into, so a
+    /// stuck descent says "石灰岩 blocks (3,97,5)" instead of "something is in
+    /// the way" — the model can only act on the former.
+    /// </summary>
+    private static string Obstruction(ComponentGeniusBrain brain, Point3? stepTarget)
+    {
+        if (stepTarget is not { } target)
+        {
+            return "";
+        }
+
+        var terrain = brain.SubsystemTerrain.Terrain;
+
+        foreach (var height in CarveHeights)
+        {
+            var y = target.Y + height;
+            if (y is < 0 or > 255)
+            {
+                continue;
+            }
+
+            var value = terrain.GetCellValue(target.X, y, target.Z);
+            var contents = Terrain.ExtractContents(value);
+            if (contents != 0)
+            {
+                var name = BlocksManager.Blocks[contents].GetDisplayName(brain.SubsystemTerrain, value);
+                return $" — {name} is still blocking ({target.X},{y},{target.Z})";
+            }
+        }
+
+        return " — the shaft is open, so something is pushing me back (a mob, or I'm stuck on geometry)";
     }
 
     /// <summary>
