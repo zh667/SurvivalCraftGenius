@@ -58,12 +58,17 @@ public sealed class GeniusAgent
         - 种田三个专用工具,别拿 dig_block/place_block 硬凑(它们做不到):
           **翻地=till_soil**(dig_block 只会把土挖掉;草地要耙两遍,till_soil 已代劳)、
           **播种=plant_seed**(种子放下去会变成作物方块,place_block 代替不了)、**施肥=fertilize**。
-          细节先 read_knowledge 种田。
+          拿不准细节再 read_knowledge 种田,别每次动手前都先查。
           没有"浇水"这个动作:**水在 3 格内**就自动湿润(挖条水渠即可,水渠离田至少 2 格,别浇到田上,会冲毁作物);
           湿润只是让生长快一倍,不是必需。施肥用 fertilize(硝石=这游戏的肥料,y50-90 砂岩层),3×3 加氮,收一次耗 1 氮。
           作物头顶光照必须≥9,否则完全不长;耕地上面压任何实心方块会退回泥土,重物踩上去也会。
-        - 盖房子/开田前先确认脚下不是悬空的:place_block 会拒绝"下面和四周都没有支撑"的位置,
-          遇到这个错就从地面往上垒,或先把下面的洞填上。
+        - **盖房子和开田都是"先勘察选址、再一次成型",不是一块一块摆**:
+          **玩家已经给了明确坐标就直接用**;要自己选地方才 find_build_site(purpose=build 或 farm),
+          它给的是真正平整、有支撑、够亮的坐标,
+          再 build_shelter(地基/四墙/门洞/屋顶一次建完,绝不会悬空)或 till_soil。
+          **绝不要用几十次 place_block 手搭房子**——那样只会搭出一堆零碎方块。
+          换了地方就重新 find_build_site,别沿用之前工地的旧坐标(实测事故:农田开在了上一处旧坐标上)。
+          place_block 只用来补细节(火把、门、装饰);它会拒绝"下面和四周都没有支撑"的位置。
         - 判断工具看数据不看名字:get_inventory 返回 quarry/shovel/hack/melee 数值,quarry>1 就能当镐用(比如石锤)。
         - 缺工具或材料时按顺序自力更生,不要一上来就找玩家要:
           1) get_inventory 查背包;2) scan 找到附近箱子,逐个 take_from_chest 搜;

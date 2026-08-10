@@ -43,14 +43,38 @@ public sealed class TillSoilOrder(Point3 origin, int width, int length) : Genius
 
     protected override void OnStart(ComponentGeniusBrain brain)
     {
+        // Snap each column to its actual ground rather than trusting the y we
+        // were handed. Playtest 10 called till_soil three times and got
+        // "下面是空的" nine cells at a time every time, because the model was
+        // passing the y of the air it was standing in, or a y remembered from
+        // a different site. The column is unambiguous; the y is not.
         for (var dx = 0; dx < Math.Clamp(width, 1, 16); dx++)
         {
             for (var dz = 0; dz < Math.Clamp(length, 1, 16); dz++)
             {
-                _plot.Add(new Point3(origin.X + dx, origin.Y, origin.Z + dz));
+                var x = origin.X + dx;
+                var z = origin.Z + dz;
+                var ground = GeniusSiteSurvey.GroundHeight(brain, x, z);
+                if (ground is { } groundY && Math.Abs(groundY - origin.Y) <= SnapRange)
+                {
+                    _plot.Add(new Point3(x, groundY, z));
+                    if (groundY != origin.Y)
+                    {
+                        _snapped++;
+                    }
+                }
+                else
+                {
+                    _plot.Add(new Point3(x, origin.Y, z));
+                }
             }
         }
     }
+
+    /// <summary>How far the given y may be off before we stop second-guessing it.</summary>
+    private const int SnapRange = 4;
+
+    private int _snapped;
 
     protected override string? OnTick(ComponentGeniusBrain brain, float dt)
     {
@@ -171,10 +195,20 @@ public sealed class TillSoilOrder(Point3 origin, int width, int length) : Genius
     private string Summary()
     {
         var text = $"tilled {_tilled} cells into farmland around " +
-            $"({origin.X},{origin.Y},{origin.Z})";
-        return _skipped.Count == 0
-            ? text
-            : text + $"; skipped {_skipped.Count}: " + string.Join(", ", _skipped.Take(6));
+            $"({origin.X},{origin.Y},{origin.Z})" +
+            (_snapped > 0
+                ? $" (snapped {_snapped} cells to the real ground height — the y you gave was off)"
+                : "");
+        if (_skipped.Count == 0)
+        {
+            return text;
+        }
+
+        text += $"; skipped {_skipped.Count}: " + string.Join(", ", _skipped.Take(6));
+        return _tilled == 0
+            ? text + ". Nothing here is farmable — use find_build_site with purpose=\"farm\" " +
+                "to get a spot that is actually flat soil in daylight, then till_soil there"
+            : text;
     }
 
     /// <summary>

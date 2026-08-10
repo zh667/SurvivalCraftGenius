@@ -87,6 +87,37 @@ public static class ToolCatalog
              "required":["y"]}
             """));
         registry.Register(new GeniusToolDefinition(
+            "find_build_site",
+            "Survey the ground nearby and return the best spot for a building or a field: flat, solid all "
+            + "the way under, no lava or water, lit, and not on the player's property. Call this BEFORE "
+            + "building or tilling instead of guessing a coordinate — it is the only way to know a patch "
+            + "is not hollow or a cliff edge.",
+            """
+            {"type":"object","properties":{
+              "width":{"type":"integer","description":"Footprint along X, default 5."},
+              "length":{"type":"integer","description":"Footprint along Z, default 5."},
+              "purpose":{"type":"string","enum":["build","farm"],"description":"farm also demands soil and light>=9."},
+              "radius":{"type":"integer","description":"How far to search, default 16."}},
+             "required":[]}
+            """));
+        registry.Register(new GeniusToolDefinition(
+            "build_shelter",
+            "Build a complete enclosed shelter in one call: filled floor (never floating), four walls, "
+            + "a doorway and a roof, using bulk blocks from my inventory. Give x/y/z to place it, or omit "
+            + "them to have me pick a surveyed spot. Never hand-place a house with place_block — that is "
+            + "how you get a pile of loose blocks instead of a building.",
+            """
+            {"type":"object","properties":{
+              "x":{"type":"integer"},
+              "y":{"type":"integer"},
+              "z":{"type":"integer"},
+              "width":{"type":"integer","description":"Outer size along X, 3-9. Default 5."},
+              "length":{"type":"integer","description":"Outer size along Z, 3-9. Default 5."},
+              "wall_height":{"type":"integer","description":"Wall height, 2-4. Default 3."},
+              "material":{"type":"string","description":"Preferred block name, e.g. 木板/鹅卵石."}},
+             "required":[]}
+            """));
+        registry.Register(new GeniusToolDefinition(
             "till_soil",
             "Rake a rectangle of ground into farmland with a rake. This is the only way to make farmland — "
             + "dig_block just removes the dirt. Grass needs two passes (grass to dirt, dirt to farmland) and "
