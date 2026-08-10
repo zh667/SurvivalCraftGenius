@@ -7,3 +7,8 @@ timestamp,provider,model,samples,cases,selection,pass_at_k,args_valid,args_match
 2026-08-10 12:11:02,cc.midlight.top,gpt-5.4-mini,3,31,77.4%,90.3%,100.0%,77.4%
 2026-08-10 12:12:40,cc.midlight.top,gpt-5.4-mini,3,31,77.4%,83.9%,100.0%,75.3%
 2026-08-10 12:14:09,cc.midlight.top,gpt-5.4-mini,3,31,80.6%,90.3%,100.0%,80.6%
+2026-08-10 22:56:04,cc.midlight.top,gpt-5.4-mini,3,35,70.5%,80.0%,100.0%,69.5%
+2026-08-10 22:57:11,cc.midlight.top,gpt-5.4-mini,3,35,69.5%,74.3%,100.0%,69.5%
+2026-08-10 22:58:36,cc.midlight.top,gpt-5.4-mini,3,35,72.4%,80.0%,100.0%,72.4%
+2026-08-10 22:59:52,cc.midlight.top,gpt-5.4-mini,3,35,75.2%,88.6%,100.0%,75.2%
+2026-08-10 23:01:39,cc.midlight.top,gpt-5.4-mini,3,35,68.6%,77.1%,100.0%,68.6%

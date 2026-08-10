@@ -841,6 +841,37 @@ public sealed class PlaceOrder(Point3 target, int slotIndex) : GeniusOrder
         }
 
         var blockName = block.GetDisplayName(brain.SubsystemTerrain, slotValue);
+
+        // Water spreads. Poured next to a field it washes the crops out and
+        // reverts the soil, undoing an entire farming trip in one call
+        // ("放水的时候也应该注意不要浇到农田"). Hydration does not need water ON the
+        // plot anyway — SubsystemSoilBlockBehavior looks up to 3 cells away, so
+        // a channel outside the field is both safe and sufficient.
+        if (block is WaterBlock or WaterBucketBlock
+            && GeniusFarming.FarmlandNear(brain, target) is { } farmland)
+        {
+            return $"error[invalid_target]: there is farmland/crops at " +
+                $"({farmland.X},{farmland.Y},{farmland.Z}), right next to " +
+                $"({target.X},{target.Y},{target.Z}) — water would flood it and turn the " +
+                "soil back to dirt. Farmland only needs water WITHIN 3 blocks, so dig the " +
+                "channel at least 2 blocks clear of the plot";
+        }
+
+        // A block placed over a hole is the start of a floating build
+        // ("盖房子和农田的时候应该看下面是不是浮空的"). Falling blocks would drop and
+        // the rest would hang in the air, so say so instead of silently doing it.
+        if (block.IsCollidable
+            && !GeniusFarming.HasSolidSupport(brain, target)
+            && Terrain.ExtractContents(brain.SubsystemTerrain.Terrain.GetCellValue(
+                target.X, target.Y - 1, target.Z)) == 0
+            && !HasSideSupport(brain, target))
+        {
+            return $"error[invalid_target]: ({target.X},{target.Y},{target.Z}) has nothing under it " +
+                "and nothing beside it — placing here starts a floating structure. " +
+                "Build up from the ground, or fill the gap below first. " +
+                "If you really meant to bridge, place against an existing block";
+        }
+
         brain.SubsystemTerrain.DestroyCell(
             0,
             target.X,
@@ -851,5 +882,25 @@ public sealed class PlaceOrder(Point3 target, int slotIndex) : GeniusOrder
             noParticleSystem: true);
         inventory.RemoveSlotItems(slotIndex, 1);
         return $"placed '{blockName}' at ({target.X}, {target.Y}, {target.Z})";
+    }
+
+    /// <summary>
+    /// Any solid neighbour on the four sides. Walls and bridges legitimately
+    /// have air underneath, so "floating" only means unsupported in every
+    /// direction, not merely "no floor".
+    /// </summary>
+    private static bool HasSideSupport(ComponentGeniusBrain brain, Point3 cell)
+    {
+        foreach (var (dx, dz) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+        {
+            var contents = Terrain.ExtractContents(
+                brain.SubsystemTerrain.Terrain.GetCellValue(cell.X + dx, cell.Y, cell.Z + dz));
+            if (contents != 0 && BlocksManager.Blocks[contents].IsCollidable)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -87,6 +87,38 @@ public static class ToolCatalog
              "required":["y"]}
             """));
         registry.Register(new GeniusToolDefinition(
+            "till_soil",
+            "Rake a rectangle of ground into farmland with a rake. This is the only way to make farmland — "
+            + "dig_block just removes the dirt. Grass needs two passes (grass to dirt, dirt to farmland) and "
+            + "this handles that. Nothing may sit on top of the cells.",
+            """
+            {"type":"object","properties":{
+              "x":{"type":"integer"},
+              "y":{"type":"integer","description":"Y of the ground cell itself, not the air above it."},
+              "z":{"type":"integer"},
+              "width":{"type":"integer","description":"Size along +X, 1-16. Default 1."},
+              "length":{"type":"integer","description":"Size along +Z, 1-16. Default 1."}},
+             "required":["x","y","z"]}
+            """));
+        registry.Register(new GeniusToolDefinition(
+            "plant_seed",
+            "Sow seeds on nearby tilled farmland. Sowing is not the same as place_block: a seed turns into a "
+            + "different block (cotton seed becomes a cotton plant). Finds bare farmland around the given cell.",
+            """
+            {"type":"object","properties":{
+              "x":{"type":"integer"},
+              "y":{"type":"integer","description":"Y of the farmland cell."},
+              "z":{"type":"integer"},
+              "seed_name":{"type":"string","description":"Seed to sow, e.g. 棉花种子/黑麦种子."},
+              "count":{"type":"integer","description":"How many to sow. Default 1."}},
+             "required":["x","y","z","seed_name"]}
+            """));
+        registry.Register(new GeniusToolDefinition(
+            "fertilize",
+            "Spread saltpeter over the 3x3 of farmland centred on a cell, setting nitrogen to 3. "
+            + "Saltpeter is this game's fertilizer; it speeds growth and each harvest spends one nitrogen.",
+            PointParameters));
+        registry.Register(new GeniusToolDefinition(
             "follow_player",
             "Start following the player continuously. Ends when any new task order (goto/dig/craft/...) starts or teleport is used; call again to resume.",
             NoParameters));
