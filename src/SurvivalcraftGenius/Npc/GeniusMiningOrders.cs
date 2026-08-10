@@ -44,6 +44,23 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
         _startPosition = brain.Creature.ComponentBody.Position;
     }
 
+    /// <summary>
+    /// The A* tunnel navigator plans through terrain and cannot express "sink a
+    /// shaft"; a target well below simply exhausts its node budget and reports
+    /// no_path. Playtest 7 showed the model receiving that bare no_path and
+    /// then teleporting around at random for six minutes. Name the escape.
+    /// </summary>
+    private string DescentAdvice(ComponentGeniusBrain brain)
+    {
+        var drop = Terrain.ToCell(brain.Creature.ComponentBody.Position).Y - _oreCell.Y;
+        return drop >= 8
+            ? $" — the {query} I picked is {drop} blocks below me at " +
+              $"({_oreCell.X},{_oreCell.Y},{_oreCell.Z}) and goto cannot plan a vertical route " +
+              $"that deep; call descend_to(y={_oreCell.Y}, looking_for=\"{query}\") and then " +
+              "mine_resource again"
+            : "";
+    }
+
     protected override string? OnTick(ComponentGeniusBrain brain, float dt)
     {
         switch (_phase)
@@ -91,7 +108,8 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
                         break;
                     case NavStatus.Failed:
                         return Summary() +
-                            $"; error[{Agent.GeniusFailure.Slug(_navigator.FailureType)}]: {_navigator.FailureReason}";
+                            $"; error[{Agent.GeniusFailure.Slug(_navigator.FailureType)}]: " +
+                            _navigator.FailureReason + DescentAdvice(brain);
                 }
 
                 return null;

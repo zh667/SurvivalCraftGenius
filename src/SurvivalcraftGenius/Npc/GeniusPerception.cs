@@ -177,6 +177,11 @@ public static class GeniusPerception
             }
         }
 
+        // Horizontal reach only. The scan walks square rings around my column
+        // while sweeping a whole ore band vertically, so a hit found in ring 12
+        // can still be 29m away in 3-D — reporting "found 118 blocks within
+        // 12m" next to a nearest hit of 29m made the model think the ore was
+        // underfoot (playtest 7). Say which axis the number is about.
         var reach = Math.Min(coveredRadius, loadedEdge);
         var edgeNote = reach >= radius || enoughFound
             ? ""
@@ -189,7 +194,7 @@ public static class GeniusPerception
         if (hits.Count == 0)
         {
             var suggestions = Agent.NameSuggest.Clause(query, seenNames);
-            return $"no '{query}' within {reach}m (searched y{minY}-{maxY} around " +
+            return $"no '{query}' within {reach}m horizontally (searched y{minY}-{maxY} around " +
                 $"({center.X},{center.Y},{center.Z})){suggestions}{edgeNote}" +
                 GeniusOreBands.Hint(query, myPosition.Y);
         }
@@ -199,11 +204,20 @@ public static class GeniusPerception
             $"{hit.Name}({hit.Cell.X},{hit.Cell.Y},{hit.Cell.Z}) {Math.Sqrt(hit.DistanceSquared):0}m");
         var deepest = hits.Min(hit => hit.Cell.Y);
         var shallowest = hits.Max(hit => hit.Cell.Y);
-        return $"found {hits.Count} matching blocks within {reach}m (y{deepest}-{shallowest}); " +
+        var nearestCell = hits[0].Cell;
+        var drop = center.Y - nearestCell.Y;
+        // The per-hit numbers are true 3-D distances; make the follow-up move
+        // explicit so a 29m-away hit does not get treated as arm's reach.
+        var nextStep = drop >= 8
+            ? $"; the nearest one is {drop} blocks BELOW me — descend_to(y={nearestCell.Y}, " +
+              $"looking_for=\"{query}\") first, then mine_resource"
+            : "; mine_resource digs these automatically, or goto/dig_block one by one";
+        return $"found {hits.Count} matching blocks (searched {reach}m horizontally, " +
+            $"they sit at y{deepest}-{shallowest}); " +
             $"nearest: {string.Join(", ", nearest)}" +
             (hits.Count > FindMaxResults ? $" (+{hits.Count - FindMaxResults} more)" : "") +
             edgeNote +
-            "; mine_resource digs these automatically, or goto/dig_block one by one";
+            nextStep;
     }
 
 
