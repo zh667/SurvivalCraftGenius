@@ -8,6 +8,12 @@ public enum AgentEventKind
     TurnFinished,
     Progress,
     Error,
+
+    /// <summary>
+    /// The run stopped and will not resume without the player saying something.
+    /// Surfaced on screen, not only in the chat log.
+    /// </summary>
+    NeedsUser,
 }
 
 public sealed record AgentEvent(AgentEventKind Kind, string Text, string ToolName = "");
@@ -49,6 +55,15 @@ public sealed class GeniusAgent
         - **teleport 能直接落到地下**:给什么 y 就去什么 y,是实心岩层就自动开个容身的小洞,
           所以要下矿层最快的办法是 teleport 到 (x, 矿层y, z),不必先挖梯井。只有岩浆旁和玩家的建筑里会拒绝。
           被困住时(周围全是玩家的建筑、不许挖)也直接 teleport 出去,不要卡在原地报错。
+        - 种田三个专用工具,别拿 dig_block/place_block 硬凑(它们做不到):
+          **翻地=till_soil**(dig_block 只会把土挖掉;草地要耙两遍,till_soil 已代劳)、
+          **播种=plant_seed**(种子放下去会变成作物方块,place_block 代替不了)、**施肥=fertilize**。
+          细节先 read_knowledge 种田。
+          没有"浇水"这个动作:**水在 3 格内**就自动湿润(挖条水渠即可,水渠离田至少 2 格,别浇到田上,会冲毁作物);
+          湿润只是让生长快一倍,不是必需。施肥用 fertilize(硝石=这游戏的肥料,y50-90 砂岩层),3×3 加氮,收一次耗 1 氮。
+          作物头顶光照必须≥9,否则完全不长;耕地上面压任何实心方块会退回泥土,重物踩上去也会。
+        - 盖房子/开田前先确认脚下不是悬空的:place_block 会拒绝"下面和四周都没有支撑"的位置,
+          遇到这个错就从地面往上垒,或先把下面的洞填上。
         - 判断工具看数据不看名字:get_inventory 返回 quarry/shovel/hack/melee 数值,quarry>1 就能当镐用(比如石锤)。
         - 缺工具或材料时按顺序自力更生,不要一上来就找玩家要:
           1) get_inventory 查背包;2) scan 找到附近箱子,逐个 take_from_chest 搜;
@@ -96,6 +111,12 @@ public sealed class GeniusAgent
     private const string SummarizerPrompt =
         """
         你是记忆压缩器。把下面游戏内玩家与AI同伴的对话历史压缩成一份简明备忘录,供同伴在后续对话中延续记忆。
+
+        **第一行必须是**「当前任务:xxx」——取玩家**最后一条**明确指派的活儿,以及它做到哪一步了。
+        玩家换了任务就以新的为准,旧任务写进「已搁置」,绝不能让旧任务climb回当前任务的位置
+        (实测事故:玩家中途改让盖房子,压缩后同伴却跑回去挖铁矿了)。
+        再写「已完成」「已搁置」两节,然后才是其余信息。
+
         必须保留:玩家的称呼/偏好/长期目标;已完成与未完成的任务及进度;重要坐标和地点;背包/装备的关键变化;
         踩过的坑和学到的教训;玩家明确的禁令。
         丢弃:寒暄、失败重试的过程细节、一次性的琐碎操作。
@@ -268,7 +289,12 @@ public sealed class GeniusAgent
 
                 AppendAndTrim(ChatMessage.User(
                     "(system: tool step budget fully exhausted — summarize progress to the player via say next time)"));
-                _onEvent(new AgentEvent(AgentEventKind.Error, "多次续期后步数仍用完,已停下;说「继续」可接着做。"));
+                // NeedsUser, not Error: the run stopped cleanly and will not
+                // restart on its own, so this has to reach the player even when
+                // the chat window is closed. Buried in the log it reads as one
+                // more grey line and the companion just looks idle.
+                _onEvent(new AgentEvent(
+                    AgentEventKind.NeedsUser, "步数用完,任务没做完就停下了;对我说「继续」我就接着干。"));
                 return;
             }
         }

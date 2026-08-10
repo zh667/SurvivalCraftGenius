@@ -441,6 +441,16 @@ public sealed class TunnelNavigator(Vector3 target, bool allowDigging, float arr
             reason += "; digging is not allowed (dig_through=true may help)";
         }
 
+        // Broken terrain — cliffs, ravines, sandstone shelves — is the usual
+        // cause, and walking is not the only option: teleport lands anywhere,
+        // including partway up a cliff. Playtest 9 had the companion give up on
+        // a hunt with "途中路线受地形阻挡" while holding a tool that ignores
+        // terrain entirely, so name it in the failure rather than assume the
+        // model will remember it has one.
+        reason += $"; the ground here is broken up — teleport straight to " +
+            "the target instead of trying to walk it (teleport honours any y, " +
+            "so a cliff or a ravine is not an obstacle)";
+
         return reason;
     }
 

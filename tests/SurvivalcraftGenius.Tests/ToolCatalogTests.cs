@@ -18,6 +18,7 @@ public class ToolCatalogTests
             "put_into_chest", "craft", "smelt", "give_to_player", "equip_tool", "attack", "mine_resource",
             "list_waypoints", "teleport", "query_recipes", "query_help", "read_knowledge",
             "find_blocks", "descend_to",
+            "till_soil", "plant_seed", "fertilize",
         ];
         Assert.Equal(expected.OrderBy(n => n), names.OrderBy(n => n));
     }

@@ -84,6 +84,13 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
 
     private static readonly Color LiveColor = new(168, 230, 160);
     private static readonly Color DeadColor = new(240, 140, 130);
+    private static readonly Color WaitingColor = new(240, 205, 120);
+
+    /// <summary>When the run last stopped waiting on the player.</summary>
+    private double _needsUserSince = double.NegativeInfinity;
+
+    /// <summary>How long the HUD keeps saying "say 继续" after that.</summary>
+    private const double NeedsUserNoticeSeconds = 600.0;
 
     /// <summary>When the companion was last summoned; drives the "I'm alive again" note.</summary>
     private double _resummonedAt = double.NegativeInfinity;
@@ -210,6 +217,13 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         {
             status = "◆ 守护灵:思考中…";
         }
+        else if (Time.FrameStartTime - _needsUserSince < NeedsUserNoticeSeconds)
+        {
+            // A blinking message vanishes after a few seconds; the companion
+            // then sits there looking idle with no sign it is waiting on you.
+            status = "⏸ 守护灵:已停下 — 说「继续」";
+            color = WaitingColor;
+        }
         else if (brain?.IsFollowing == true)
         {
             status = "◆ 守护灵:跟随中";
@@ -261,6 +275,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     /// </summary>
     private void StartOrQueueTurn(string text)
     {
+        _needsUserSince = double.NegativeInfinity;
         if (!_agent!.TryBeginTurn())
         {
             // Free the LLM loop but keep the running order working in the
@@ -744,6 +759,15 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 case AgentEventKind.Error:
                     AppendLog(GeniusChatRole.Info, $"出错:{agentEvent.Text}");
                     break;
+                case AgentEventKind.NeedsUser:
+                    AppendLog(GeniusChatRole.Info, $"⏸ {agentEvent.Text}");
+                    _needsUserSince = Time.FrameStartTime;
+                    m_componentPlayer.ComponentGui?.DisplaySmallMessage(
+                        $"Genius:{agentEvent.Text}",
+                        Color.White,
+                        blinking: true,
+                        playNotificationSound: true);
+                    break;
                 case AgentEventKind.TurnFinished:
                     if (_pendingMessage is not null)
                     {
@@ -911,7 +935,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     private static readonly HashSet<string> LongRunningTools = new(StringComparer.Ordinal)
     {
         "mine_resource", "goto", "craft", "smelt", "collect_items", "dig_block", "take_from_chest",
-        "descend_to",
+        "descend_to", "till_soil", "plant_seed",
     };
 
     private Task<string> ExecuteToolOnMainThread(string name, JObject arguments)
@@ -1012,6 +1036,33 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 }
 
                 var order = new DescendOrder(targetY, (string?)arguments["looking_for"]);
+                brain.StartOrder(order);
+                return order.Completion;
+            }
+
+            case "till_soil":
+            {
+                var order = new TillSoilOrder(
+                    ReadPoint(arguments),
+                    (int?)arguments["width"] ?? 1,
+                    (int?)arguments["length"] ?? 1);
+                brain.StartOrder(order);
+                return order.Completion;
+            }
+
+            case "plant_seed":
+            {
+                var order = new PlantSeedOrder(
+                    ReadPoint(arguments),
+                    (string?)arguments["seed_name"] ?? "",
+                    (int?)arguments["count"] ?? 1);
+                brain.StartOrder(order);
+                return order.Completion;
+            }
+
+            case "fertilize":
+            {
+                var order = new FertilizeOrder(ReadPoint(arguments));
                 brain.StartOrder(order);
                 return order.Completion;
             }
