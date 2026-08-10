@@ -5,18 +5,23 @@ using Game.NetWork;
 namespace SurvivalcraftGenius.Npc;
 
 /// <summary>
-/// Keeps the world alive around the NPC when it travels beyond the
-/// player-loaded bubble, so autonomous expeditions actually work. The engine
-/// does everything around players only; this mirrors that machinery around
-/// the NPC while it is far away:
-///  - registers an extra terrain update location so chunks load around it;
+/// Keeps the world alive around the NPC. The engine does everything around
+/// players only, so without this the companion walks into terrain that does
+/// not exist. Two layers, deliberately separated:
+///
+/// ALWAYS ON — a terrain update location centred on the NPC, so chunks load
+/// around IT rather than only around the player. This also defines how far
+/// find_blocks can ever see out here (see LoadRadius).
+///
+/// EXPEDITION MODE (only past ActivateDistance from every player):
 ///  - wakes hibernated entities and seeds creature spawns in surrounding
 ///    spawn chunks, exactly like the engine's per-camera SpawnChunks pass
 ///    (same limits and weighted spawn tables, so no creature inflation);
 ///  - shields nearby creatures from the every-2s "far from all players"
 ///    despawn sweep by clearing AutoDespawn while they are close, restoring
 ///    it when they (or the NPC) leave.
-/// Server side only; dormant while the NPC stays near a player.
+/// Both would double up with the engine's own work near a player, which is
+/// why only this half is distance-gated. Server side only.
 /// </summary>
 public sealed class GeniusExpeditionKeeper
 {
@@ -75,10 +80,26 @@ public sealed class GeniusExpeditionKeeper
                 nearestPlayer, Vector3.Distance(player.ComponentBody.Position, myPosition));
         }
 
+        // The terrain bubble is UNCONDITIONAL, unlike expedition mode below.
+        // It used to be tied to being far from a player, which left a hole:
+        // standing 30m away, the companion had no bubble of its own and rode
+        // the player's, which is centred on the PLAYER — so terrain past the
+        // companion ended 34m out and a wider find_blocks was silently clipped
+        // on that side. Near a player the two bubbles mostly overlap, so
+        // keeping our own costs little and makes the companion's horizon the
+        // same in every direction.
+        //
+        // visibilityDistance 0, contentDistance LoadRadius — the engine's own
+        // headless pattern (PlayerData asks for 0/64 while a player is still
+        // loading). Nobody renders from the NPC's eyes, so asking for geometry
+        // was pure waste; content-only chunks carry the whole simulation.
+        brain.SubsystemTerrain.TerrainUpdater.SetUpdateLocation(
+            UpdateLocationIndex, new Vector2(myPosition.X, myPosition.Z), 0f, LoadRadius);
+
         if (_active && nearestPlayer < DeactivateDistance)
         {
-            Engine.Log.Information("[Genius] Expedition keeper OFF (back near a player).");
-            Deactivate(brain);
+            Engine.Log.Information("[Genius] Expedition mode OFF (back near a player); terrain bubble stays.");
+            StopExpedition();
             return;
         }
 
@@ -91,29 +112,26 @@ public sealed class GeniusExpeditionKeeper
 
             _active = true;
             Engine.Log.Information(
-                $"[Genius] Expedition keeper ON at {myPosition} ({nearestPlayer:0}m from nearest player).");
+                $"[Genius] Expedition mode ON at {myPosition} ({nearestPlayer:0}m from nearest player).");
         }
 
-        // visibilityDistance 0, contentDistance LoadRadius — the engine's own
-        // headless pattern (PlayerData asks for 0/64 while a player is still
-        // loading). Nobody renders from the NPC's eyes, so asking for geometry
-        // was pure waste; content-only chunks carry the whole simulation.
-        brain.SubsystemTerrain.TerrainUpdater.SetUpdateLocation(
-            UpdateLocationIndex, new Vector2(myPosition.X, myPosition.Z), 0f, LoadRadius);
+        // Expedition mode proper: wildlife only spawns around players, so a
+        // companion working alone needs the engine's per-camera spawn pass run
+        // on its behalf, plus shielding from the far-from-players despawn sweep.
         KeepChunksAlive(brain, spawn, creatureSpawn, myPosition, now);
         ProtectFromDespawn(spawn, myPosition);
     }
 
-    /// <summary>Call when the NPC entity leaves the world.</summary>
-    public void Shutdown(ComponentGeniusBrain brain) => Deactivate(brain);
-
-    private void Deactivate(ComponentGeniusBrain brain)
+    /// <summary>Call when the NPC entity leaves the world — drops the bubble too.</summary>
+    public void Shutdown(ComponentGeniusBrain brain)
     {
-        if (_active)
-        {
-            brain.SubsystemTerrain.TerrainUpdater.RemoveUpdateLocation(UpdateLocationIndex);
-        }
+        brain.SubsystemTerrain.TerrainUpdater.RemoveUpdateLocation(UpdateLocationIndex);
+        StopExpedition();
+    }
 
+    /// <summary>Ends expedition mode but leaves the terrain bubble in place.</summary>
+    private void StopExpedition()
+    {
         foreach (var tracked in _protected)
         {
             if (tracked.Entity.Project is not null && !tracked.IsDespawning)
