@@ -16,8 +16,37 @@ public static class GeniusPerception
     private const int MaxRarePositions = 25;
     private const float CreatureScanRange = 16f;
 
-    private const int FindMaxRadius = 32;
+    /// <summary>
+    /// Matches the engine's own content radius: TerrainUpdater.PrepareForDrawing
+    /// asks for chunks 64 blocks around each player camera, and
+    /// AllocateAndFreeChunks FREES everything past it. Searching wider than the
+    /// terrain that exists just reads null chunks, so 64 is the real ceiling
+    /// near a player — on a far expedition it is GeniusExpeditionKeeper.LoadRadius.
+    /// </summary>
+    private const int FindMaxRadius = 64;
+
     private const int FindMaxResults = 12;
+
+    /// <summary>
+    /// Cell reads allowed in one call. The scan runs on the game thread, so it
+    /// is bounded rather than trusted: at ~2-4ns per read (chunk hoisted out of
+    /// the column loop, Y contiguous in TerrainChunk.Cells) this stays inside a
+    /// few milliseconds even in the worst case.
+    /// </summary>
+    private const int FindCellBudget = 1_500_000;
+
+    /// <summary>Non-ore searches sweep this far up/down; ores use their band.</summary>
+    private const int FindDefaultVerticalRange = 24;
+
+    /// <summary>
+    /// Enough near hits that further rings cannot change the answer — common
+    /// blocks (dirt, granite) would otherwise pile up hundreds of thousands of
+    /// coordinates nobody reads. Only applies past FindEnoughHitsRing, so a
+    /// small deliberate radius is always honoured in full.
+    /// </summary>
+    private const int FindEnoughHits = 64;
+
+    private const int FindEnoughHitsRing = 12;
 
     /// <summary>
     /// Pinpoint search: exact coordinates of every block matching a name in a
@@ -40,57 +69,77 @@ public static class GeniusPerception
         var myPosition = brain.Creature.ComponentBody.Position;
         var center = Terrain.ToCell(myPosition);
         var band = GeniusOreBands.Match(query);
-        // Ore: sweep its whole band. Anything else: a slab around me, since a
-        // full 255-tall column times a 65x65 footprint is a million cell reads
-        // on the main thread.
-        var minY = Math.Max(1, band?.MinY ?? center.Y - radius);
-        var maxY = Math.Min(255, band?.MaxY ?? center.Y + radius);
+        // Ore: sweep its whole generation band. Anything else: a slab around me
+        // — a full 255-tall column over a 129x129 footprint would be four
+        // million cell reads on the game thread.
+        var minY = Math.Max(1, band?.MinY ?? center.Y - FindDefaultVerticalRange);
+        var maxY = Math.Min(255, band?.MaxY ?? center.Y + FindDefaultVerticalRange);
 
         var hits = new List<(Point3 Cell, string Name, float DistanceSquared)>();
         var seenNames = new HashSet<string>();
-        var matchKinds = new Dictionary<int, string?>();
-        var scannedColumns = 0;
-        var unloadedColumns = 0;
-        for (var dx = -radius; dx <= radius; dx++)
+        // Contents is 10 bits (Terrain.ExtractContents masks 0x3FF) and
+        // BlocksManager.m_blocks is exactly Block[1024], so the per-cell
+        // "does this block match?" test is an array index rather than a
+        // dictionary probe. Underground almost every cell is solid, so this is
+        // the hot path — a dictionary here costs more than reading the terrain.
+        var matchState = new byte[1024];
+        var matchNames = new string?[1024];
+        var cellsRead = 0;
+        var coveredRadius = 0;
+        var loadedEdge = 0;
+        var emptyRings = 0;
+        var budgetHit = false;
+        var enoughFound = false;
+
+        // Nearest-first, ring by ring: the answer the model wants is the closest
+        // match, so an interrupted scan still returns the right one and can say
+        // honestly how far it got.
+        for (var ring = 0; ring <= radius; ring++)
         {
-            for (var dz = -radius; dz <= radius; dz++)
+            var ringHadTerrain = false;
+            foreach (var (x, z) in GeniusScanGeometry.RingColumns(center.X, center.Z, ring))
             {
-                var x = center.X + dx;
-                var z = center.Z + dz;
-                if (terrain.GetChunkAtCell(x, z) is null)
+                // One chunk lookup per column instead of per cell, then a
+                // straight walk down TerrainChunk.Cells (Y is contiguous there).
+                var chunk = terrain.GetChunkAtCell(x, z);
+                if (chunk is null)
                 {
-                    unloadedColumns++;
                     continue;
                 }
 
-                scannedColumns++;
+                ringHadTerrain = true;
+                var localX = x & 15;
+                var localZ = z & 15;
                 for (var y = minY; y <= maxY; y++)
                 {
-                    var value = terrain.GetCellValue(x, y, z);
+                    cellsRead++;
+                    var value = chunk.GetCellValueFast(localX, y, localZ);
                     var contents = Terrain.ExtractContents(value);
                     if (contents == 0)
                     {
                         continue;
                     }
 
-                    if (!matchKinds.TryGetValue(contents, out var matchedName))
+                    var state = matchState[contents];
+                    if (state == 0)
                     {
                         var block = BlocksManager.Blocks[contents];
                         var displayName = block.GetDisplayName(brain.SubsystemTerrain, value);
                         var craftingId = block.GetCraftingId(value) ?? "";
                         seenNames.Add(displayName);
-                        matchedName =
-                            displayName.Contains(query, StringComparison.OrdinalIgnoreCase)
-                            || craftingId.Contains(query, StringComparison.OrdinalIgnoreCase)
-                                ? displayName
-                                : null;
-                        matchKinds[contents] = matchedName;
+                        var matches = displayName.Contains(query, StringComparison.OrdinalIgnoreCase)
+                            || craftingId.Contains(query, StringComparison.OrdinalIgnoreCase);
+                        state = matches ? (byte)2 : (byte)1;
+                        matchState[contents] = state;
+                        matchNames[contents] = matches ? displayName : null;
                     }
 
-                    if (matchedName is null)
+                    if (state == 1)
                     {
                         continue;
                     }
+
+                    var matchedName = matchNames[contents]!;
 
                     var ddx = x + 0.5f - myPosition.X;
                     var ddy = y + 0.5f - myPosition.Y;
@@ -98,16 +147,50 @@ public static class GeniusPerception
                     hits.Add((new Point3(x, y, z), matchedName, ddx * ddx + ddy * ddy + ddz * ddz));
                 }
             }
+
+            coveredRadius = ring;
+            if (ringHadTerrain)
+            {
+                loadedEdge = ring;
+                emptyRings = 0;
+            }
+            else if (ring > 0 && ++emptyRings >= 2)
+            {
+                // Two solid rings of unallocated chunks: we have walked off the
+                // edge of the loaded world, and nothing further will ever hit.
+                break;
+            }
+
+            if (cellsRead >= FindCellBudget)
+            {
+                budgetHit = true;
+                break;
+            }
+
+            if (hits.Count >= FindEnoughHits && ring >= FindEnoughHitsRing)
+            {
+                // Already far more matches than anyone can act on, all of them
+                // closer than anything further out could be. Stopping here is a
+                // shortcut, NOT the edge of the world — say so.
+                enoughFound = true;
+                break;
+            }
         }
+
+        var reach = Math.Min(coveredRadius, loadedEdge);
+        var edgeNote = reach >= radius || enoughFound
+            ? ""
+            : budgetHit
+                ? $"; stopped at {reach}m (search budget)"
+                : $"; terrain only exists out to about {reach}m around me right now " +
+                  "(the world loads around players, and around me on expeditions) — " +
+                  "walk or teleport closer to search further";
 
         if (hits.Count == 0)
         {
             var suggestions = Agent.NameSuggest.Clause(query, seenNames);
-            var unloaded = unloadedColumns > scannedColumns / 4
-                ? $"; {unloadedColumns} of the columns were not loaded yet — the world loads around players and around me"
-                : "";
-            return $"no '{query}' within {radius}m (searched y{minY}-{maxY} around " +
-                $"({center.X},{center.Y},{center.Z})){suggestions}{unloaded}" +
+            return $"no '{query}' within {reach}m (searched y{minY}-{maxY} around " +
+                $"({center.X},{center.Y},{center.Z})){suggestions}{edgeNote}" +
                 GeniusOreBands.Hint(query, myPosition.Y);
         }
 
@@ -116,11 +199,13 @@ public static class GeniusPerception
             $"{hit.Name}({hit.Cell.X},{hit.Cell.Y},{hit.Cell.Z}) {Math.Sqrt(hit.DistanceSquared):0}m");
         var deepest = hits.Min(hit => hit.Cell.Y);
         var shallowest = hits.Max(hit => hit.Cell.Y);
-        return $"found {hits.Count} matching blocks within {radius}m (y{deepest}-{shallowest}); " +
+        return $"found {hits.Count} matching blocks within {reach}m (y{deepest}-{shallowest}); " +
             $"nearest: {string.Join(", ", nearest)}" +
             (hits.Count > FindMaxResults ? $" (+{hits.Count - FindMaxResults} more)" : "") +
+            edgeNote +
             "; mine_resource digs these automatically, or goto/dig_block one by one";
     }
+
 
     public static string ScanSurroundings(ComponentGeniusBrain brain, ComponentBody? playerBody)
     {

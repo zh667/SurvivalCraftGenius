@@ -166,7 +166,7 @@ public sealed class DescendOrder(int targetY, string? lookingFor = null) : Geniu
             return summary;
         }
 
-        return summary + ". " + GeniusPerception.FindBlocks(brain, lookingFor!, 16);
+        return summary + ". " + GeniusPerception.FindBlocks(brain, lookingFor!, 32);
     }
 
     /// <summary>

@@ -65,3 +65,29 @@
 - 掉落物 0.5s 后 1.75m 自动吸取,存在 90-300s。经验:钻矿3珠,其他矿1珠。
 - 引擎自带"最佳工具建议"逻辑(ComponentMiner.FindBestInventoryToolForDigging):遍历背包按 CalculateDigTime 选最快
   ——Genius 的 TimedDigger.EquipBestToolFor 同款实现。
+
+## 8. 找矿半径的物理上限(为什么 find_blocks 封顶 64)
+
+**世界不是全都在内存里。** `TerrainUpdater` 按"更新位置"分配和释放区块:
+
+- `PrepareForDrawing(camera)` → `SetUpdateLocation(playerIndex, 相机XZ, VisibilityRange, **64f**)`
+  ——每个玩家周围 **64 格**的区块保有"内容"(`TerrainChunkState.InvalidVertices1`:方块数据、光照、
+  方块行为、生物刷新——模拟需要的一切,只是不生成渲染网格)。
+- `AllocateAndFreeChunks` 会把**不在任何更新位置范围内的区块直接 Free 掉**(先存盘)。
+
+所以 `terrain.GetChunkAtCell(x, z)` 在 64 格外返回 null,`GetCellValue` 一律返回 0(空气)。
+**搜索半径开再大也只是在读不存在的地形**,这就是 find_blocks 封顶 64 的原因,不是偷懒。
+
+守护灵单独远征时,它的视野由 `GeniusExpeditionKeeper.LoadRadius` 决定(现为 **48**,
+用 `SetUpdateLocation(idx, xz, 0f, LoadRadius)` ——可见距离传 0,只要内容不要渲染网格,
+这正是引擎自己给无相机玩家用的姿势 `PlayerData:265`)。要搜更远只能走过去或传送过去。
+
+### 扫描性能(1024 上限与列内连续)
+
+- `Terrain.ExtractContents` = `value & 0x3FF`,`BlocksManager.m_blocks` 正好是 `Block[1024]`
+  ——所以"这个方块匹配吗"可以用 `byte[1024]` 查表,而不是字典。地下几乎每格都是实体方块,
+  这条是热路径,字典探测比读地形本身还贵。
+- `TerrainChunk.Cells[y + x*256 + z*4096]`:**Y 在内存里是连续的**。
+  按列取一次区块再纵向走,比每格 `GetCellValue`(每格一次区块查找)快一个量级。
+- find_blocks 按**同心方环由近及远**扫,并有单次调用的读格预算:即使中途停下,
+  拿到的也一定是最近的那些,还能如实报告"实际搜到了多少米"。

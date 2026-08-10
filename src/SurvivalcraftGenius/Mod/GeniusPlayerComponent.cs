@@ -956,7 +956,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 return Task.FromResult(GeniusPerception.FindBlocks(
                     brain,
                     (string?)arguments["name"] ?? "",
-                    (int?)arguments["radius"] ?? 16));
+                    (int?)arguments["radius"] ?? 32));
 
             case "descend_to":
             {
