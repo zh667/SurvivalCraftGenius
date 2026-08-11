@@ -32,6 +32,7 @@ public sealed class TillSoilOrder(Point3 origin, int width, int length) : Genius
     private int _tilled;
     private float _strokeElapsed;
     private int _strokesOnCell;
+    private int _stuckCount;
 
     /// <summary>Rake passes one cell may take before it is written off.</summary>
     private const int MaxStrokesPerCell = 4;
@@ -98,22 +99,14 @@ public sealed class TillSoilOrder(Point3 origin, int width, int length) : Genius
 
         var cell = _plot[_index];
         var center = new Vector3(cell.X + 0.5f, cell.Y + 0.5f, cell.Z + 0.5f);
-        var distance = Vector3.Distance(brain.Creature.ComponentBody.Position, center);
-        if (distance > ReachDistance)
+        switch (ApproachCell(brain, center, ReachDistance, ref _stuckCount))
         {
-            if (brain.m_componentPathfinding.IsStuck)
-            {
+            case Approach.Walking:
+                return null;
+            case Approach.Unreachable:
                 _skipped.Add($"({cell.X},{cell.Y},{cell.Z}) 走不到");
                 _index++;
                 return null;
-            }
-
-            if (!brain.m_componentPathfinding.Destination.HasValue)
-            {
-                WalkTowards(brain, center, 2.5f);
-            }
-
-            return null;
         }
 
         _strokeElapsed += dt;

@@ -33,6 +33,7 @@ public sealed class HarvestCropsOrder(Point3? center, int radius, bool includeWi
     private int _cut;
     private int _wildLeft;
     private float _cutElapsed;
+    private int _stuckCount;
 
     protected override float TimeoutSeconds => 600f;
 
@@ -107,20 +108,13 @@ public sealed class HarvestCropsOrder(Point3? center, int radius, bool includeWi
 
         var cell = _ripe[_index];
         var center2 = Center(cell);
-        if (Vector3.Distance(brain.Creature.ComponentBody.Position, center2) > ReachDistance)
+        switch (ApproachCell(brain, center2, ReachDistance, ref _stuckCount))
         {
-            if (brain.m_componentPathfinding.IsStuck)
-            {
+            case Approach.Walking:
+                return null;
+            case Approach.Unreachable:
                 _index++;
                 return null;
-            }
-
-            if (!brain.m_componentPathfinding.Destination.HasValue)
-            {
-                WalkTowards(brain, center2, 2.5f);
-            }
-
-            return null;
         }
 
         _cutElapsed += dt;

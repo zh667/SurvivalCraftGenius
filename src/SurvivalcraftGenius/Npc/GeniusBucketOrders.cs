@@ -32,6 +32,8 @@ public sealed class UseBucketOrder(Point3 target) : GeniusOrder
     public const int WaterBucketContents = 91;
     public const int MagmaBucketContents = 93;
 
+    private int _stuckCount;
+
     protected override float TimeoutSeconds => 120f;
 
     protected override string TimeoutResult() =>
@@ -50,19 +52,12 @@ public sealed class UseBucketOrder(Point3 target) : GeniusOrder
         }
 
         var center = new Vector3(target.X + 0.5f, target.Y + 0.5f, target.Z + 0.5f);
-        if (Vector3.Distance(brain.Creature.ComponentBody.Position, center) > ReachDistance)
+        switch (ApproachCell(brain, center, ReachDistance, ref _stuckCount))
         {
-            if (brain.m_componentPathfinding.IsStuck)
-            {
+            case Approach.Walking:
+                return null;
+            case Approach.Unreachable:
                 return $"error[no_path]: cannot get close enough to ({target.X},{target.Y},{target.Z})";
-            }
-
-            if (!brain.m_componentPathfinding.Destination.HasValue)
-            {
-                WalkTowards(brain, center, 2.5f);
-            }
-
-            return null;
         }
 
         var terrain = brain.SubsystemTerrain.Terrain;

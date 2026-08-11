@@ -37,6 +37,7 @@ public sealed class BuildShelterOrder(
     private Point3 _origin;
     private int _groundY;
     private bool _planned;
+    private int _stuckCount;
 
     private enum CellRole
     {
@@ -89,21 +90,14 @@ public sealed class BuildShelterOrder(
 
         var (cell, role) = _plan[_index];
         var center = new Vector3(cell.X + 0.5f, cell.Y + 0.5f, cell.Z + 0.5f);
-        if (Vector3.Distance(brain.Creature.ComponentBody.Position, center) > ReachDistance)
+        switch (ApproachCell(brain, center, ReachDistance, ref _stuckCount))
         {
-            if (brain.m_componentPathfinding.IsStuck)
-            {
+            case Approach.Walking:
+                return null;
+            case Approach.Unreachable:
                 _problems.Add($"({cell.X},{cell.Y},{cell.Z}) 走不到");
                 _index++;
                 return null;
-            }
-
-            if (!brain.m_componentPathfinding.Destination.HasValue)
-            {
-                WalkTowards(brain, center, 2.5f);
-            }
-
-            return null;
         }
 
         _elapsed += dt;
@@ -203,16 +197,38 @@ public sealed class BuildShelterOrder(
         return null;
     }
 
+    /// <summary>
+    /// What actually happened, never what was planned.
+    ///
+    /// This used to open with "built a WxL shelter: floor filled in, four walls,
+    /// a doorway and a roof" unconditionally and only then append the counts —
+    /// so a run that placed ZERO blocks still announced a finished house, and
+    /// the model relayed that to the player in good faith. Playtest 12:
+    /// "我让你用木板盖!你看看你怎么盖的!" The tool lied first.
+    /// </summary>
     private string Summary()
     {
-        var text = $"built a {Width}x{Length} shelter with {Height}-high walls at " +
-            $"({_origin.X},{_groundY},{_origin.Z}): floor filled in, four walls, " +
-            $"a doorway on the -Z side, and a roof. Placed {_placed} blocks" +
-            (_cleared > 0 ? $", cleared {_cleared} to hollow out the inside" : "");
-        return _problems.Count == 0
-            ? text
-            : text + $"; {_problems.Count} spots gave trouble: " +
-                string.Join(", ", _problems.Take(5));
+        var where = $"({_origin.X},{_groundY},{_origin.Z})";
+        var needed = _plan.Count(entry => entry.Role == CellRole.Solid);
+        var trouble = _problems.Count == 0
+            ? ""
+            : $";{_problems.Count} 格没做成: " + string.Join(", ", _problems.Take(5));
+
+        if (_placed == 0)
+        {
+            return $"房子没有盖起来:{where} 一块都没放上去(计划需要 {needed} 块){trouble}";
+        }
+
+        if (_problems.Count > 0 || _placed < needed)
+        {
+            return $"房子只盖了一部分:{where} 放了 {_placed}/{needed} 块" +
+                (_cleared > 0 ? $",掏空 {_cleared} 格" : "") +
+                ",墙和屋顶都还不完整,不能算房子" + trouble;
+        }
+
+        return $"盖好了 {Width}x{Length} 的小屋,{Height} 格高墙,在 {where}:" +
+            $"地基填满、四面墙、-Z 面一个两格门洞、屋顶齐全,共放了 {_placed} 块" +
+            (_cleared > 0 ? $",掏空 {_cleared} 格" : "");
     }
 
     private string Advice(ComponentGeniusBrain brain)
@@ -234,6 +250,25 @@ public sealed class BuildShelterOrder(
 /// </summary>
 public static class GeniusBuildMaterials
 {
+    /// <summary>
+    /// Things worth more standing in the bag than sitting in a wall: ore, seeds,
+    /// and the functional blocks a base needs. Everything else — planks,
+    /// cobblestone, bricks, stairs, glass, fences — IS the building material.
+    ///
+    /// This deliberately does NOT reuse <see cref="GeniusProtectedBlocks"/>.
+    /// That list answers "may I dig this cell out of the world", and planks are
+    /// on it because a plank wall is usually the player's house. Reusing it here
+    /// answered a different question — "may I spend this slot" — and the answer
+    /// came back no for the most obvious building material in the game.
+    /// Playtest 12: 82 planks in the bag, and every attempt reported
+    /// "I ran out of building blocks. Bring me cobblestone or planks".
+    /// </summary>
+    public static bool IsTooValuableForAWall(Block block, string displayName) =>
+        block is SeedsBlock
+            or ChestBlock or FurnaceBlock or CraftingTableBlock
+            or TorchBlock or DoorBlock or LadderBlock
+        || displayName.Contains('矿');
+
     public static int? FindSlot(
         ComponentGeniusBrain brain, IInventory inventory, string? preferredName)
     {
@@ -250,14 +285,13 @@ public static class GeniusBuildMaterials
             var value = inventory.GetSlotValue(slot);
             var contents = Terrain.ExtractContents(value);
             var block = BlocksManager.Blocks[contents];
-            if (!block.IsPlaceable || !block.IsCollidable || GeniusProtectedBlocks.IsPlayerBuilt(contents))
+            if (!block.IsPlaceable || !block.IsCollidable)
             {
                 continue;
             }
 
-            // Ore and anything with a crafting use is worth more than a wall.
             var name = block.GetDisplayName(brain.SubsystemTerrain, value);
-            if (name.Contains('矿') || block is SeedsBlock)
+            if (IsTooValuableForAWall(block, name))
             {
                 continue;
             }

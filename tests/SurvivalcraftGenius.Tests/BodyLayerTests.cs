@@ -173,3 +173,48 @@ public class TerrainReadyTests
             state => Assert.False(GeniusTerrainReady.IsReadable(state)));
     }
 }
+
+/// <summary>
+/// What the companion may spend on a wall. Two different questions got answered
+/// by one list, and the companion ended up unable to build with planks.
+///
+/// Blocks are constructed directly rather than looked up through
+/// BlocksManager.Blocks — that array is only populated once the game loads its
+/// content, which never happens in a Linux unit-test run.
+/// </summary>
+public class BuildMaterialTests
+{
+    [Fact]
+    public void Planks_AreBuildingMaterial()
+    {
+        // GeniusProtectedBlocks says "do not dig this out of the world", and
+        // planks belong on it — a plank wall is usually the player's house.
+        // But a plank in MY bag is mine to spend. Reusing the protected list to
+        // answer that second question left 82 planks unusable while the tool
+        // reported "I ran out of building blocks. Bring me cobblestone or
+        // planks" (playtest 12).
+        Assert.False(GeniusBuildMaterials.IsTooValuableForAWall(new PlanksBlock(), "木板"));
+    }
+
+    [Theory]
+    [InlineData("铁矿", true)]
+    [InlineData("煤矿", true)]
+    [InlineData("鹅卵石", false)]
+    [InlineData("木板", false)]
+    public void OreIsKept_PlainBlocksAreSpent(string displayName, bool tooValuable)
+    {
+        Assert.Equal(
+            tooValuable,
+            GeniusBuildMaterials.IsTooValuableForAWall(new PlanksBlock(), displayName));
+    }
+
+    [Fact]
+    public void FunctionalBlocks_AreNeverSpentOnWalls()
+    {
+        // A chest in the wall is a chest you no longer have.
+        Assert.True(GeniusBuildMaterials.IsTooValuableForAWall(new ChestBlock(), "箱子"));
+        Assert.True(GeniusBuildMaterials.IsTooValuableForAWall(new FurnaceBlock(), "熔炉"));
+        Assert.True(GeniusBuildMaterials.IsTooValuableForAWall(new CraftingTableBlock(), "工作台"));
+        Assert.True(GeniusBuildMaterials.IsTooValuableForAWall(new SeedsBlock(), "小麦种子"));
+    }
+}
