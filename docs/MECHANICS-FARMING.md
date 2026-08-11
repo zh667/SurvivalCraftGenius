@@ -160,3 +160,39 @@ CanCrouch = base.Entity.FindComponent<ComponentPlayer>() != null;
 收割走各方块自己的 `GetDropValues` 再 `AddPickable`,不是 `DestroyCell`,这样 7 级黑麦的
 麦粒和那次 50% 的加掉都和玩家自己割一模一样。(本版引擎的 `AddPickable` 没有 ownerEntity
 参数——那是更新的重载——所以掉落是普通掉落物,靠边割边捡。)
+
+## 11. 取水:守护灵缺的不是知识,是动词(v0.11.2 补)
+
+playtest 11,它自己把问题说得比错误信息还准:
+
+> 我确认了正确方法:空桶要握着「轻击水源块」,但我现有工具接口只有挖掘和放置,
+> 无法执行轻击交互,所以没法替你装水。
+
+`SubsystemBucketBlockBehavior.OnUse` 两半:
+
+- **装水**(方块 90 空桶):raycast 必须打中 `WaterBlock` 且 `FluidBlock.GetLevel(data) == 0`
+  ——**必须是水源,流动的边缘舀不起来**。然后槽位变成 91,水格被 `DestroyCell`。
+- **倒水**(方块 91 水桶):`componentMiner.Place(raycast, MakeBlockValue(18))`,槽位变回 90。
+
+两半 NPC 都够不着:`OnUse` 要一条玩家相机瞄出来的 `Ray3`,而 `ComponentMiner.Place` 在没有
+`ComponentPlayer` 的实体上会 NPE(本项目一直以来的老规矩)。所以 `use_bucket` 直接做同样的
+状态变更,和 `till_soil` 对耙子的处理一个路子。
+
+倒水时会拒绝紧邻耕地/作物的格子:水会流,浇到田上冲毁作物、耕地退回泥土。
+田从 3 格内吸水,所以水渠**不需要挨着田**。
+
+## 12. 「收农作物」不等于「把附近的草都割了」
+
+playtest 11:玩家说"去收一下农作物",`harvest_crops` 半径 8 割了 **7 株,只得到 2 颗野生小麦种子**——
+玩家当场看穿:"那是你把没成熟或者生长失败的小麦收了"。
+
+对账:野生黑麦的掉落是 `size > 2 && Random < 0.33` → 1 颗种子,**永远不出麦**。
+7 × 33% ≈ 2.3,和实际拿到的 2 颗吻合 ⇒ 它割的全是**野生**株,而玩家种的那批还没熟。
+
+所以 `harvest_crops` 现在**默认跳过野生作物**(`include_wild` 显式打开),并且把
+"另有 N 株野生的没动"写进返回值。玩家说"收我的田"时,他要的是他种的那批的结果,
+不是一个被野草凑大的数字。
+
+**顺带纠正一处**:`SeedsBlock.GetPlacementValue` 里 data 4(野生小麦种子)和 data 5(小麦种子)
+**种下去都是 `SetIsWild(false)` 的普通黑麦**。「工具人」那份映射把 4 当成野生,是错的;
+我一开始也这么怀疑过。两个名字的区别只在掉落,不影响种植。

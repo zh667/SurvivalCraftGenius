@@ -101,8 +101,12 @@ public static class GeniusPerception
             {
                 // One chunk lookup per column instead of per cell, then a
                 // straight walk down TerrainChunk.Cells (Y is contiguous there).
+                // A chunk object exists as soon as it is allocated; its cells are
+                // only real once the generator has run (GeniusTerrainReady).
+                // Counting an ungenerated chunk as terrain made "the world ends
+                // at Nm" wrong in exactly the places it mattered.
                 var chunk = terrain.GetChunkAtCell(x, z);
-                if (chunk is null)
+                if (chunk is null || !GeniusTerrainReady.IsReadable(chunk.State))
                 {
                     continue;
                 }
@@ -438,16 +442,16 @@ public static class GeniusPerception
         // Honest blindness: the server only keeps chunks loaded around
         // players. An unloaded area silently reads as all-air, which looks
         // like "nothing here" — say what is actually happening instead.
-        if (terrain.GetChunkAtCell(centerCell.X, centerCell.Z) is null)
+        if (!GeniusTerrainReady.HasCells(terrain, centerCell.X, centerCell.Z))
         {
             result["area_not_loaded"] = true;
             result["warning"] = "我所在区域还没加载完(远征时世界会在几秒内围绕我加载好)——" +
                 "此刻的扫描结果是空的不可信,稍等几秒再 scan 一次";
         }
-        else if (terrain.GetChunkAtCell(centerCell.X - HorizontalRadius, centerCell.Z - HorizontalRadius) is null
-            || terrain.GetChunkAtCell(centerCell.X + HorizontalRadius, centerCell.Z + HorizontalRadius) is null
-            || terrain.GetChunkAtCell(centerCell.X - HorizontalRadius, centerCell.Z + HorizontalRadius) is null
-            || terrain.GetChunkAtCell(centerCell.X + HorizontalRadius, centerCell.Z - HorizontalRadius) is null)
+        else if (!GeniusTerrainReady.HasCells(terrain, centerCell.X - HorizontalRadius, centerCell.Z - HorizontalRadius)
+            || !GeniusTerrainReady.HasCells(terrain, centerCell.X + HorizontalRadius, centerCell.Z + HorizontalRadius)
+            || !GeniusTerrainReady.HasCells(terrain, centerCell.X - HorizontalRadius, centerCell.Z + HorizontalRadius)
+            || !GeniusTerrainReady.HasCells(terrain, centerCell.X + HorizontalRadius, centerCell.Z - HorizontalRadius))
         {
             result["scan_partial"] = "扫描范围有一部分未加载(那些方向读不到方块)";
         }

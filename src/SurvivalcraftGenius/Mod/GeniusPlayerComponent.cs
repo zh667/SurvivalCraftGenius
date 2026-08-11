@@ -79,6 +79,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         ["DescendOrder"] = "下潜挖井",
         ["TillSoilOrder"] = "翻地",
         ["HarvestCropsOrder"] = "收割",
+        ["UseBucketOrder"] = "取水",
         ["PlantSeedOrder"] = "播种",
         ["BuildShelterOrder"] = "盖房",
     };
@@ -939,7 +940,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     private static readonly HashSet<string> LongRunningTools = new(StringComparer.Ordinal)
     {
         "mine_resource", "goto", "craft", "smelt", "collect_items", "dig_block", "take_from_chest",
-        "descend_to", "till_soil", "plant_seed", "build_shelter", "harvest_crops",
+        "descend_to", "till_soil", "plant_seed", "build_shelter", "harvest_crops", "use_bucket",
     };
 
     private Task<string> ExecuteToolOnMainThread(string name, JObject arguments)
@@ -1003,7 +1004,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                     Terrain.ToCell(m_componentPlayer.ComponentBody.Position),
                     radius,
                     facing,
-                    (x, z) => terrain.GetChunkAtCell(x, z) is not null));
+                    (x, z) => GeniusTerrainReady.HasCells(terrain, x, z)));
             }
 
             case "get_inventory":
@@ -1107,6 +1108,13 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 return order.Completion;
             }
 
+            case "use_bucket":
+            {
+                var order = new UseBucketOrder(ReadPoint(arguments));
+                brain.StartOrder(order);
+                return order.Completion;
+            }
+
             case "harvest_crops":
             {
                 Point3? center = arguments["x"] is not null
@@ -1114,7 +1122,10 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                     && arguments["z"] is not null
                         ? ReadPoint(arguments)
                         : null;
-                var order = new HarvestCropsOrder(center, (int?)arguments["radius"] ?? 8);
+                var order = new HarvestCropsOrder(
+                    center,
+                    (int?)arguments["radius"] ?? 8,
+                    (bool?)arguments["include_wild"] ?? false);
                 brain.StartOrder(order);
                 return order.Completion;
             }
@@ -1166,7 +1177,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                 brain.StopMoving();
                 var destCell = Terrain.ToCell(destination);
                 var terrain = brain.SubsystemTerrain.Terrain;
-                var loaded = terrain.GetChunkAtCell(destCell.X, destCell.Z) is not null;
+                var loaded = GeniusTerrainReady.HasCells(terrain, destCell.X, destCell.Z);
                 if (!loaded)
                 {
                     // Blind teleport killed the NPC twice (physics runs before
@@ -1174,6 +1185,9 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                     // the surface once the expedition keeper loads the chunk.
                     brain.PendingTeleportHover = new Vector3(destCell.X + 0.5f, 150f, destCell.Z + 0.5f);
                     brain.PendingTeleportTarget = destCell;
+                    // Somewhere real to go back to if the area never generates —
+                    // otherwise the body stays pinned in the sky forever.
+                    brain.PendingTeleportReturn = brain.Creature.ComponentBody.Position;
                     brain.Creature.ComponentBody.Position = brain.PendingTeleportHover.Value;
                     brain.Creature.ComponentBody.Velocity = Vector3.Zero;
                     return Task.FromResult(

@@ -245,7 +245,7 @@ public sealed class MineResourceOrder(string query, int targetCount) : GeniusOrd
         {
             for (var dz = -SearchRadius; dz <= SearchRadius; dz++)
             {
-                if (terrain.GetChunkAtCell(center.X + dx, center.Z + dz) is null)
+                if (!GeniusTerrainReady.HasCells(terrain, center.X + dx, center.Z + dz))
                 {
                     continue;
                 }

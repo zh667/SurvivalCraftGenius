@@ -16,7 +16,7 @@ namespace SurvivalcraftGenius.Npc;
 /// entity — that overload is newer — so the drops are ordinary loose items and
 /// we sweep them up cell by cell as we go.)
 /// </summary>
-public sealed class HarvestCropsOrder(Point3? center, int radius) : GeniusOrder
+public sealed class HarvestCropsOrder(Point3? center, int radius, bool includeWild) : GeniusOrder
 {
     private const float ReachDistance = 4.5f;
 
@@ -31,6 +31,7 @@ public sealed class HarvestCropsOrder(Point3? center, int radius) : GeniusOrder
     private readonly Dictionary<string, int> _taken = [];
     private int _index;
     private int _cut;
+    private int _wildLeft;
     private float _cutElapsed;
 
     protected override float TimeoutSeconds => 600f;
@@ -66,6 +67,17 @@ public sealed class HarvestCropsOrder(Point3? center, int radius) : GeniusOrder
                     }
 
                     var (size, isWild) = Decode(contents, Terrain.ExtractData(value));
+                    if (isWild && !includeWild)
+                    {
+                        // Wild plants are not the player's crop. Playtest 11:
+                        // asked to "收一下农作物" the companion mowed down 7 wild
+                        // rye for 2 seeds (the engine gives wild rye a flat 33%
+                        // seed chance and NEVER grain) while the actual field
+                        // stood unripe — and then reported it as a harvest.
+                        _wildLeft++;
+                        continue;
+                    }
+
                     if (GeniusHarvestRules.IsRipe(contents, size, isWild))
                     {
                         _ripe.Add(new Point3(x, y, z));
@@ -170,18 +182,25 @@ public sealed class HarvestCropsOrder(Point3? center, int radius) : GeniusOrder
 
     private string Summary()
     {
+        // Wild plants have to be named, not silently skipped: the player asked
+        // for a harvest and is owed the difference between "nothing was ready"
+        // and "nothing YOU planted was ready".
+        var wild = _wildLeft > 0
+            ? $";另有 {_wildLeft} 株野生的没动(野生黑麦只有 1/3 概率掉一颗种子、永远不出麦," +
+              "要割就说 include_wild)"
+            : "";
         if (_cut == 0)
         {
             var why = _notRipe.Count > 0
                 ? ";附近的作物:" + string.Join("、", _notRipe)
                 : "";
-            return $"没有可收的作物(搜了半径 {Math.Clamp(radius, 1, MaxRadius)}m){why}";
+            return $"没有可收的作物(搜了半径 {Math.Clamp(radius, 1, MaxRadius)}m){why}{wild}";
         }
 
         var haul = _taken.Count > 0
             ? ",收到 " + string.Join("、", _taken.Select(entry => $"{entry.Key}×{entry.Value}"))
             : "";
         var left = _notRipe.Count > 0 ? ";还没熟的先留着了" : "";
-        return $"收了 {_cut} 株{haul}{left}";
+        return $"收了 {_cut} 株{haul}{left}{wild}";
     }
 }

@@ -150,16 +150,24 @@ public static class ToolCatalog
             + "Speeds growth; each harvest spends one.",
             PointParameters));
         registry.Register(new GeniusToolDefinition(
+            "use_bucket",
+            "Fill or empty a bucket at a cell — the interaction dig_block/place_block cannot do. "
+            + "Point at a water SOURCE (not a flowing edge) to fill; point at an empty cell to pour. "
+            + "Direction is chosen from what the cell holds. This is the only way to move water.",
+            PointParameters));
+        registry.Register(new GeniusToolDefinition(
             "harvest_crops",
-            "Cut every ripe crop nearby and collect the drops. Only cuts what is fully grown — an "
-            + "early rye gives seed instead of grain and an early pumpkin feeds nobody — and reports "
-            + "what was left standing. Omit x/y/z to work around where I stand.",
+            "Cut every ripe PLANTED crop nearby and collect the drops. Only cuts what is fully grown "
+            + "— an early rye gives seed instead of grain and an early pumpkin feeds nobody — and "
+            + "leaves wild plants alone unless asked. Reports what was left standing and why. "
+            + "Omit x/y/z to work around where I stand.",
             """
             {"type":"object","properties":{
               "x":{"type":"integer"},
               "y":{"type":"integer"},
               "z":{"type":"integer"},
-              "radius":{"type":"integer","description":"Search radius in blocks, 1-16. Default 8."}}}
+              "radius":{"type":"integer","description":"Search radius in blocks, 1-16. Default 8."},
+              "include_wild":{"type":"boolean","description":"Also cut wild plants. Default false — wild rye never yields grain, only a 1-in-3 seed."}}}
             """));
         registry.Register(new GeniusToolDefinition(
             "follow_player",

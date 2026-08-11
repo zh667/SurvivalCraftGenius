@@ -1,3 +1,4 @@
+using Game;
 using SurvivalcraftGenius.Npc;
 using Xunit;
 
@@ -131,5 +132,44 @@ public class HarvestRulesTests
 
         Assert.Contains("棉花", reason);
         Assert.Contains("1", reason);
+    }
+}
+
+/// <summary>
+/// A chunk object exists as soon as it is allocated; its cells are only real
+/// once the generator has run. Getting this wrong killed the companion.
+/// </summary>
+public class TerrainReadyTests
+{
+    [Theory]
+    [InlineData(TerrainChunkState.NotLoaded, false)]
+    [InlineData(TerrainChunkState.InvalidContents1, false)]
+    [InlineData(TerrainChunkState.InvalidContents4, false)]
+    [InlineData(TerrainChunkState.InvalidLight, true)]
+    [InlineData(TerrainChunkState.InvalidVertices1, true)]
+    [InlineData(TerrainChunkState.Valid, true)]
+    public void IsReadable_MatchesTheThresholdTheEngineUsesToPlaceAPlayer(
+        TerrainChunkState state, bool expected)
+    {
+        // ComponentIntro.cs:148 requires exactly >= InvalidLight before it will
+        // read cells to choose a spawn. Anything below has not finished the four
+        // content passes, so every cell reads air and GetTopHeight returns 0 —
+        // which is how a teleport hover dropped the body to y=1 and it was
+        // crushed when the terrain finally arrived (playtest 11).
+        Assert.Equal(expected, GeniusTerrainReady.IsReadable(state));
+    }
+
+    [Fact]
+    public void IsReadable_RejectsEveryContentsPassBelowTheThreshold()
+    {
+        // The four InvalidContents passes are exactly the window where a
+        // null-check would have said "loaded".
+        Assert.All(
+            new[]
+            {
+                TerrainChunkState.InvalidContents1, TerrainChunkState.InvalidContents2,
+                TerrainChunkState.InvalidContents3, TerrainChunkState.InvalidContents4,
+            },
+            state => Assert.False(GeniusTerrainReady.IsReadable(state)));
     }
 }

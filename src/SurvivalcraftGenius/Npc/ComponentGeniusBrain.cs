@@ -103,6 +103,19 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     /// </summary>
     public Point3? PendingTeleportTarget { get; set; }
 
+    /// <summary>Where to put the body back if the target area never generates.</summary>
+    public Vector3? PendingTeleportReturn { get; set; }
+
+    /// <summary>When the current hover started, for the give-up deadline.</summary>
+    private double _hoverStartedAt;
+
+    /// <summary>
+    /// How long to wait in the sky for terrain. The expedition keeper needs a
+    /// few seconds; past this the area is not coming (out of range, or the
+    /// coordinates were invented) and hovering forever is worse than not going.
+    /// </summary>
+    private const double HoverGiveUpSeconds = 25.0;
+
     /// <summary>Self-preservation reflexes that outbid orders for the body.</summary>
     public GeniusInstincts Instincts { get; } = new();
 
@@ -151,7 +164,12 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         {
             var body = m_componentCreature.ComponentBody;
             var hoverCell = Terrain.ToCell(hover);
-            if (m_subsystemTerrain.Terrain.GetChunkAtCell(hoverCell.X, hoverCell.Z) is not null)
+            if (_hoverStartedAt == 0.0)
+            {
+                _hoverStartedAt = m_subsystemTime.GameTime;
+            }
+
+            if (GeniusTerrainReady.HasCells(m_subsystemTerrain.Terrain, hoverCell.X, hoverCell.Z))
             {
                 // Land where the caller actually asked to land. This used to
                 // always snap to the surface, which silently discarded the Y —
@@ -169,6 +187,28 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
                 body.Velocity = Vector3.Zero;
                 PendingTeleportHover = null;
                 PendingTeleportTarget = null;
+                PendingTeleportReturn = null;
+                _hoverStartedAt = 0.0;
+            }
+            else if (m_subsystemTime.GameTime - _hoverStartedAt > HoverGiveUpSeconds
+                && PendingTeleportReturn is { } origin)
+            {
+                // The area is not coming. Go back where we came from rather than
+                // hang in the sky: an abandoned hover left the companion pinned
+                // and every later order failed against a body that was nowhere.
+                Log.Information(
+                    $"[Genius] teleport gave up: ({hoverCell.X},{hoverCell.Z}) never generated, returning");
+                body.Position = origin;
+                body.Velocity = Vector3.Zero;
+                PendingTeleportHover = null;
+                PendingTeleportTarget = null;
+                PendingTeleportReturn = null;
+                _hoverStartedAt = 0.0;
+                _order?.Finish(
+                    "error[area_not_loaded]: that area never loaded (probably far outside the "
+                    + "world the server keeps alive) — I came back to where I was. Pick somewhere "
+                    + "nearer, or walk part of the way first");
+                _order = null;
             }
             else
             {

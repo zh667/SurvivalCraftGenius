@@ -389,7 +389,7 @@ public sealed class CraftOrder(string itemName, int count) : GeniusOrder
         {
             for (var dz = -radius; dz <= radius; dz++)
             {
-                if (terrain.GetChunkAtCell(center.X + dx, center.Z + dz) is null)
+                if (!GeniusTerrainReady.HasCells(terrain, center.X + dx, center.Z + dz))
                 {
                     continue;
                 }

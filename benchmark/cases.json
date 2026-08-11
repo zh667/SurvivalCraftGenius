@@ -391,5 +391,23 @@
       "harvest_crops"
     ],
     "expect_args": {}
+  },
+  {
+    "name": "fill_bucket_uses_use_bucket",
+    "user": "用空桶在 (-30,102,180) 那个水源装点水",
+    "world_state": "我的位置: (-32,103,181);玩家位置: (-33,103,181);相距 1m",
+    "accept_tools": [
+      "use_bucket"
+    ],
+    "expect_args": {}
+  },
+  {
+    "name": "pour_water_uses_use_bucket",
+    "user": "把水桶里的水倒进 (-58,104,168) 那格水沟",
+    "world_state": "我的位置: (-58,105,170);玩家位置: (-59,105,170);相距 1m",
+    "accept_tools": [
+      "use_bucket"
+    ],
+    "expect_args": {}
   }
 ]

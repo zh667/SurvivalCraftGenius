@@ -194,7 +194,7 @@ public sealed class TunnelNavigator(Vector3 target, bool allowDigging, float arr
             // the next ring, and the next segment continues.
             var terrain = brain.SubsystemTerrain.Terrain;
             var start = Terrain.ToCell(myPosition);
-            if (terrain.GetChunkAtCell(start.X, start.Z) is null)
+            if (!GeniusTerrainReady.HasCells(terrain, start.X, start.Z))
             {
                 var now = brain.m_subsystemTime.GameTime;
                 if (_waitingForChunksSince == 0.0)
