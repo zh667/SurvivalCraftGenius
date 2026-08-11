@@ -15,3 +15,5 @@ timestamp,provider,model,samples,cases,selection,pass_at_k,args_valid,args_match
 2026-08-11 00:47:52,cc.midlight.top,gpt-5.4-mini,3,37,68.5%,78.4%,100.0%,67.6%
 2026-08-11 00:49:35,cc.midlight.top,gpt-5.4-mini,3,37,76.6%,83.8%,100.0%,74.8%
 2026-08-11 00:51:42,cc.midlight.top,gpt-5.4-mini,3,37,78.4%,91.9%,100.0%,77.5%
+2026-08-11 16:42:26,cc.midlight.top,gpt-5.4-mini,3,37,84.7%,94.6%,100.0%,83.8%
+2026-08-11 16:43:52,cc.midlight.top,gpt-5.4-mini,3,37,87.4%,94.6%,100.0%,87.4%

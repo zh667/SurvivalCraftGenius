@@ -17,6 +17,28 @@ public sealed class GeniusSettings
     /// <summary>Optional extra text appended to the built-in system prompt.</summary>
     public string SystemPromptExtra { get; set; } = "";
 
+    /// <summary>
+    /// Prompt caching. Every agent step re-sends the same system prompt and tool
+    /// schemas (~6k tokens); with caching on, the provider bills those at a
+    /// fraction. "auto" marks them only for Claude-family models — OpenAI caches
+    /// automatically and needs no marker, and an unknown gateway might reject one.
+    /// "on" forces the markers, "off" never sends them.
+    /// </summary>
+    public string PromptCache { get; set; } = PromptCacheAuto;
+
+    public const string PromptCacheAuto = "auto";
+    public const string PromptCacheOn = "on";
+    public const string PromptCacheOff = "off";
+
+    /// <summary>Whether this request should carry cache_control markers.</summary>
+    public bool UsePromptCache => PromptCache?.Trim().ToLowerInvariant() switch
+    {
+        PromptCacheOn => true,
+        PromptCacheOff => false,
+        _ => Model.Contains("claude", StringComparison.OrdinalIgnoreCase)
+            || Model.Contains("anthropic", StringComparison.OrdinalIgnoreCase),
+    };
+
     /// <summary>Tool calls allowed per budget round (auto-extended up to 2x).</summary>
     public int MaxToolSteps { get; set; } = 32;
 
