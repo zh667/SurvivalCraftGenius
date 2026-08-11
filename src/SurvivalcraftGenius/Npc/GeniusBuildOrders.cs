@@ -57,6 +57,9 @@ public sealed class BuildShelterOrder(
 
     private int Height => Math.Clamp(wallHeight, 2, 4);
 
+    public override string? Signature =>
+        $"build:{requestedOrigin?.X},{requestedOrigin?.Y},{requestedOrigin?.Z}:{Width}x{Length}x{Height}";
+
     protected override float TimeoutSeconds => 900f;
 
     protected override string TimeoutResult() =>

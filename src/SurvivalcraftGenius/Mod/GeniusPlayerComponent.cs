@@ -1077,6 +1077,13 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                     (int?)arguments["length"] ?? 5,
                     (int?)arguments["wall_height"] ?? 3,
                     (string?)arguments["material"]);
+                if (brain.IsRunning(order.Signature!))
+                {
+                    return Task.FromResult(
+                        "已经在盖同一栋了,还在施工中——**别再下同样的指令**,那会把正在跑的任务顶掉、" +
+                        "从头再来(实测因此连废三栋)。等它自己返回结果就行;要换地方或换尺寸再重新调用");
+                }
+
                 brain.StartOrder(order);
                 return order.Completion;
             }

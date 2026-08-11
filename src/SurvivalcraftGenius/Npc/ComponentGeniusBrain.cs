@@ -122,6 +122,16 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     /// <summary>Keeps chunks loaded and wildlife spawning around the NPC on far expeditions.</summary>
     public GeniusExpeditionKeeper Expedition { get; } = new();
 
+    /// <summary>
+    /// Is an identical order already running? Re-issuing one kills the first
+    /// (StartOrder supersedes it) and restarts from nothing — playtest 15 lost
+    /// a 9x9 house that way three times over, and the companion read the
+    /// symptom correctly: "旧的后台建房任务和我补发的新指令互相顶掉了,寻路就
+    /// 表现成转圈".
+    /// </summary>
+    public bool IsRunning(string signature) =>
+        _order is not null && _order.Signature == signature;
+
     /// <summary>Starts an order; a running order is cancelled with a failure result.</summary>
     public void StartOrder(GeniusOrder order)
     {
@@ -655,6 +665,12 @@ public abstract class GeniusOrder
     private double _deadline;
 
     public Task<string> Completion => _completion.Task;
+
+    /// <summary>
+    /// Identity of the work, for "this is already running" checks. Null means
+    /// the order is cheap enough that restarting it costs nothing.
+    /// </summary>
+    public virtual string? Signature => null;
 
     protected abstract float TimeoutSeconds { get; }
 

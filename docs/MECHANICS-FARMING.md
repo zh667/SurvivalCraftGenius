@@ -270,3 +270,39 @@ playtest 13:
 (压在耕地上会让它退回泥土,只能插旁边),没有火把则在返回值里说清楚要先 craft 一根。
 
 和"整地"是同一条原则:**能补的前置条件就去补,不要把它当成拒绝的理由。**
+
+## 16. playtest 15 的两个新根因(与版本无关)
+
+**一、`take_from_chest` 说拿到了,东西没进背包。**
+
+```
+22:01:46  take_from_chest -> took from chest: 小麦种子 x3
+22:01:56  plant_seed      -> error[missing_material]: I have no seeds at all
+```
+
+中间十秒没有任何别的动作碰过背包。守护灵自己也看出来了:「箱里那3颗种子取出后却没进背包」。
+
+`GeniusInventoryOps.MoveItems` 信了 `ComponentInventoryBase.AcquireItems` 的返回值
+(leftover),按它算出 taken 然后从源头 `RemoveSlotItems`。返回值一旦和现实不符,
+**物品就被凭空销毁**——从箱子里扣掉了,却哪儿也没加上。
+(`AcquireItems` 在 `WorkType == Client` 时更是直接 `return 0` 却什么都不加;这局是 Server,
+所以还有别的原因没查清,但这不重要——)
+
+修法是**不再相信返回值**:搬运前后各数一遍目标背包里该物品的数量,差值才是真正搬过去的,
+源头只扣这个差值。**搬不过去时源头原封不动**,并记一行日志说明。背包满时给出明确的
+`error[missing_material]: my inventory is full`,而不是含糊的"箱子空了"。
+
+**二、它把自己的建房任务顶掉了三次。**
+
+```
+21:39:35  build_shelter 9x9 开工
+21:42:23  build_shelter 9x9(同参数)→ 上一单 error[superseded]
+21:45:08  又一次 error[superseded]
+```
+
+长活儿没返回结果时,模型会"补发一次同样的指令",而 `StartOrder` 会取消正在跑的那一单。
+**每补发一次就从零开始**,于是永远盖不完,表现出来就是玩家看到的"又在转圈"。
+守护灵的诊断一字不差:「旧的后台建房任务和我补发的新指令互相顶掉了,寻路就表现成转圈」。
+
+`GeniusOrder.Signature` + `brain.IsRunning(signature)`:同一栋房子的重复指令直接返回
+"已经在盖同一栋了,别再下同样的指令",不碰正在跑的任务。提示词也加了这条通则。

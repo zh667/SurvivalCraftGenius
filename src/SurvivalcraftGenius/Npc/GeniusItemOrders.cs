@@ -183,6 +183,21 @@ public static class GeniusInventoryOps
     }
 
     /// <summary>Moves up to maxCount matching items between two inventories.</summary>
+    /// <summary>How many of exactly this item value the inventory holds.</summary>
+    private static int CountOf(IInventory inventory, int value)
+    {
+        var total = 0;
+        for (var slot = 0; slot < inventory.SlotsCount; slot++)
+        {
+            if (inventory.GetSlotValue(slot) == value)
+            {
+                total += inventory.GetSlotCount(slot);
+            }
+        }
+
+        return total;
+    }
+
     public static Dictionary<string, int> MoveItems(
         ComponentGeniusBrain brain,
         IInventory source,
@@ -209,13 +224,26 @@ public static class GeniusInventoryOps
             }
 
             var wanted = Math.Min(count, remainingBudget);
-            var leftover = ComponentInventoryBase.AcquireItems(target, value, wanted);
-            var taken = wanted - leftover;
+
+            // Count before and after instead of trusting the return value.
+            // ComponentInventoryBase.AcquireItems reports "leftover", and a
+            // mismatch between that and reality destroys items: we would remove
+            // them from the source having never added them anywhere. Playtest 15
+            // lost three wheat seeds exactly like this — "took from chest:
+            // 小麦种子 x3", and six seconds later "I have no seeds at all", with
+            // nothing else touching the inventory in between.
+            var before = CountOf(target, value);
+            ComponentInventoryBase.AcquireItems(target, value, wanted);
+            var taken = CountOf(target, value) - before;
             if (taken <= 0)
             {
+                Log.Warning(
+                    $"[Genius] transfer refused: {name} x{wanted} did not land " +
+                    $"(target had {before}); leaving it in the source");
                 break;
             }
 
+            // Only ever remove what demonstrably arrived.
             source.RemoveSlotItems(slot, taken);
             moved[name] = moved.TryGetValue(name, out var existing) ? existing + taken : taken;
             remainingBudget -= taken;
@@ -263,10 +291,28 @@ public sealed class TakeFromChestOrder(Point3 chest, string? nameFilter, int max
             return $"nothing matching '{nameFilter}' in the chest{suggestions}; it holds: {listing}";
         }
 
+        if (moved.Count == 0)
+        {
+            var free = 0;
+            for (var slot = 0; slot < inventory.SlotsCount; slot++)
+            {
+                if (inventory.GetSlotCount(slot) <= 0)
+                {
+                    free++;
+                }
+            }
+
+            if (free == 0)
+            {
+                return "error[missing_material]: my inventory is full — nothing came across. "
+                    + "put_into_chest something I do not need first, or give_to_player it";
+            }
+        }
+
         return GeniusInventoryOps.DescribeMoved(
             moved,
             "took from chest",
-            "the chest is empty (or my inventory is full)");
+            "the chest is empty");
     }
 }
 
