@@ -29,6 +29,9 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     private double _nextFollowUpdateTime;
     private float _suppressedTime;
     private double _nextVacuumTime;
+
+    /// <summary>True while the crouch is ours (farmland), not an order's.</summary>
+    private bool _crouchedForFarmland;
     private readonly Dictionary<string, int> _recentPickups = [];
     private string? _lastAttackerName;
     private double _lastAttackedTime;
@@ -191,6 +194,8 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
             VacuumNearbyPickables();
         }
 
+        CrouchOverFarmland();
+
         if (_order is not null)
         {
             // Dead bodies cannot act: ComponentBehaviorSelector picks no
@@ -286,6 +291,12 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         m_componentCreature = Entity.FindComponent<ComponentCreature>(throwOnError: true)!;
         m_componentPathfinding = Entity.FindComponent<ComponentPathfinding>(throwOnError: true)!;
         m_componentMiner = Entity.FindComponent<ComponentMiner>(throwOnError: true)!;
+        // ComponentBody.Load sets CanCrouch only for entities with a
+        // ComponentPlayer, and both crouch setters silently clamp to 0 without
+        // it — so an NPC cannot crouch at all until we say otherwise. We need it
+        // for farmland (see CrouchOverFarmland) and it also buys the engine's own
+        // squeeze-out-of-a-tight-spot escape at ComponentBody.cs:558.
+        m_componentCreature.ComponentBody.CanCrouch = true;
         // Same hook vanilla creatures use for retaliation (ComponentChaseBehavior).
         m_componentCreature.ComponentHealth.Attacked += Instincts.NotifyAttacked;
         m_componentCreature.ComponentHealth.Attacked += RecordAttacker;
@@ -388,6 +399,39 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         }
 
         base.OnEntityRemoved();
+    }
+
+    /// <summary>
+    /// Crouch while standing on farmland, and only then.
+    ///
+    /// SubsystemSoilBlockBehavior.OnCollide degrades soil(168) back to dirt(2)
+    /// under any body heavier than 20 that is not crouching — and the companion
+    /// weighs 80. Tilling a field means walking every column of it, so without
+    /// this the companion destroys the field it is making. Crouching is the
+    /// engine's own exemption, which beats cancelling the terrain change behind
+    /// the engine's back.
+    /// </summary>
+    private void CrouchOverFarmland()
+    {
+        var body = m_componentCreature.ComponentBody;
+        var cell = Terrain.ToCell(body.Position);
+        var onFarmland =
+            m_subsystemTerrain.Terrain.GetCellContents(cell.X, cell.Y - 1, cell.Z)
+                == GeniusFarming.SoilContents;
+        if (onFarmland)
+        {
+            // IsSneaking IS the crouch flag in this engine (it just reads
+            // CrouchFactor), which is also what stalking attacks use.
+            body.IsSneaking = true;
+            _crouchedForFarmland = true;
+        }
+        else if (_crouchedForFarmland)
+        {
+            // Only undo our own crouch: an order that sneaks for its own reasons
+            // (stalking a bird) keeps its stance.
+            body.IsSneaking = false;
+            _crouchedForFarmland = false;
+        }
     }
 
     public void VacuumNearbyPickables(float range = 2.6f)

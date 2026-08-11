@@ -373,5 +373,23 @@
       "find_build_site"
     ],
     "expect_args": {}
+  },
+  {
+    "name": "harvest_ripe_field",
+    "user": "田里的黑麦该熟了，去收一下",
+    "world_state": "我的位置: (-40,112,190);玩家位置: (-41,112,190);相距 1m;已知地标: 农田(-40,111,190)(我正站在田里)",
+    "accept_tools": [
+      "harvest_crops"
+    ],
+    "expect_args": {}
+  },
+  {
+    "name": "harvest_not_dig_block",
+    "user": "把 (-38,112,191) 这株成熟的棉花收了",
+    "world_state": "我的位置: (-40,112,190);玩家位置: (-41,112,190);相距 1m",
+    "accept_tools": [
+      "harvest_crops"
+    ],
+    "expect_args": {}
   }
 ]

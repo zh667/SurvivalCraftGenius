@@ -131,3 +131,39 @@ playtest 7 的原话:守护灵被问"你是怎么阵亡的",只能答
 仍然持有最后一个 order,状态栏于是照旧显示"挖掘中"——
 玩家看到的是"守护灵阵亡之后旁边还显示他在干什么,容易以为他还在工作"。
 所以 HUD 必须把 `Health <= 0` 当成**最高优先级**的状态,压过 order 标签和"思考中"。
+
+## 9. 它比一只狼还脆(v0.11.0 修)
+
+`mod.netxdb` 从来没有覆盖过 `Health`,于是守护灵吃的是 `ComponentTemplate Health` 的默认值:
+
+| | 默认(我们之前) | 21 级玩家 / 工具人 | 现在 |
+|---|---|---|---|
+| AttackResilience | 10 | 20 | **20** |
+| FallResilience | 7.5 | 20 | **20** |
+| FireResilience | 10 | 20 | **20** |
+
+伤害公式是 `ComponentMiner.cs:632` 的 `attackPower / AttackResilience`,所以 10→20 就是**直接减半**。
+
+前几次实测反复出现"他都不知道自己怎么阵亡的",我当时修的是**死因归因**(第 7 节)。
+那是对的,但不是全部——真正的原因更朴素:**它就是太脆**。
+
+## 10. 护甲:引擎那条路对生物是封死的
+
+```csharp
+// ComponentMiner.AttackBody:620
+ComponentClothing componentClothing = target.Entity.FindComponent<ComponentClothing>();
+if (componentClothing != null) attackPower = componentClothing.ApplyArmorProtection(attackPower);
+```
+
+看着能用,但 `ComponentClothing.Load` 里有 `FindComponent<ComponentPlayer>(throwOnError: true)`
+——**没有 ComponentPlayer 的实体永远挂不上这个组件**。这就是「工具人」为什么要自己写一份
+`ComponentGuardClothing`。
+
+我们走的是 `AttackBody` 钩子(它在原版护甲那一步**之前**触发,且 `attackPower` 是 `ref`),
+护甲直接从**背包里**读:每个部位取防护最高的那件,背着就等于穿着。省掉了一整套装备槽、
+存档格式和 UI。代价说清楚:**模型上看不见护甲**,因为渲染走 `ComponentOuterClothingModel`,
+而它读的是 `ComponentClothing`。
+
+减伤算法是 `ComponentClothing.ApplyArmorProtection` 的转写,抽成不依赖引擎的 `GeniusArmorMath`:
+命中部位(脚 10% / 腿 20% / 身 60% / 头 10%)、按 `ArmorProtection` 吸收但受**剩余耐久**封顶
+(破损的甲防得更少)、按 `Sturdiness` 扣耐久、小数部分掷骰子决定是否多扣一点、扣满即碎。

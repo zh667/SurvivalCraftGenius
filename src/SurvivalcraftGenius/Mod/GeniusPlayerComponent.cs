@@ -78,6 +78,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         ["MineResourceOrder"] = "挖矿远征",
         ["DescendOrder"] = "下潜挖井",
         ["TillSoilOrder"] = "翻地",
+        ["HarvestCropsOrder"] = "收割",
         ["PlantSeedOrder"] = "播种",
         ["BuildShelterOrder"] = "盖房",
     };
@@ -938,7 +939,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     private static readonly HashSet<string> LongRunningTools = new(StringComparer.Ordinal)
     {
         "mine_resource", "goto", "craft", "smelt", "collect_items", "dig_block", "take_from_chest",
-        "descend_to", "till_soil", "plant_seed", "build_shelter",
+        "descend_to", "till_soil", "plant_seed", "build_shelter", "harvest_crops",
     };
 
     private Task<string> ExecuteToolOnMainThread(string name, JObject arguments)
@@ -1102,6 +1103,18 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             case "fertilize":
             {
                 var order = new FertilizeOrder(ReadPoint(arguments));
+                brain.StartOrder(order);
+                return order.Completion;
+            }
+
+            case "harvest_crops":
+            {
+                Point3? center = arguments["x"] is not null
+                    && arguments["y"] is not null
+                    && arguments["z"] is not null
+                        ? ReadPoint(arguments)
+                        : null;
+                var order = new HarvestCropsOrder(center, (int?)arguments["radius"] ?? 8);
                 brain.StartOrder(order);
                 return order.Completion;
             }
