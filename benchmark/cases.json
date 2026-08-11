@@ -143,16 +143,16 @@
       },
       {
         "role": "assistant",
-        "content": "前面 8 米有一只鸟,还活着。"
+        "content": "前面 8 米有一只乌鸦,还活着。"
       }
     ],
-    "user": "悄悄靠近那只鸟,别惊飞它,干掉它",
+    "user": "悄悄靠近那只乌鸦,别惊飞它,干掉它",
     "accept_tools": [
       "attack"
     ],
     "expect_args": {
       "target_name": [
-        "鸟"
+        "乌鸦"
       ],
       "sneak": "true"
     }
@@ -414,6 +414,15 @@
     "name": "uneven_ground_still_builds",
     "user": "这块地有点坡，你把它整平了在这盖个小屋，坐标 (-58,105,171)",
     "world_state": "我的位置: (-57,106,170);玩家位置: (-58,106,170);相距 1m",
+    "accept_tools": [
+      "build_shelter"
+    ],
+    "expect_args": {}
+  },
+  {
+    "name": "resume_half_built_house",
+    "user": "你那个房子才盖了一半，接着盖完 (-60,103,188)",
+    "world_state": "我的位置: (-59,104,188);玩家位置: (-58,104,188);相距 1m",
     "accept_tools": [
       "build_shelter"
     ],

@@ -622,9 +622,10 @@ public sealed class GiveToPlayerOrder(ComponentBody playerBody, string? nameFilt
 /// Chases and melee-attacks the named creature until it dies or escapes.
 /// With sneak=true it stalks instead: silent footsteps (the body's sneak flag
 /// suppresses footstep noise for human-model creatures), approaching from
-/// behind the target's facing — the engine's fly-away behavior only sees
-/// predators in the target's front hemisphere and startles at any ≥0.25
-/// noise within earshot, so this is the only way to reach birds.
+/// keeping the noise down. Sight is no longer the problem: the companion's
+/// creature Category is Bird, so ComponentFlyAwayBehavior.IsPredator does not
+/// match it and a bird will let it walk up in plain view. Noise still flushes
+/// them (≥0.25 within earshot), which is what the sneak flag suppresses.
 /// </summary>
 public sealed class AttackOrder(ComponentCreature target, bool sneak = false) : GeniusOrder
 {
@@ -774,27 +775,17 @@ public sealed class AttackOrder(ComponentCreature target, bool sneak = false) : 
                     // Silent steps (human-model footstep noise is suppressed
                     // while the body sneaks; sneaking also blocks jumps).
                     brain.Creature.ComponentBody.IsSneaking = true;
-                    var targetForward = target.ComponentBody.Matrix.Forward;
-                    var behindPoint = targetPosition - Vector3.Normalize(
-                        new Vector3(targetForward.X, 0f, targetForward.Z)) * 3.5f;
-                    var toMe = myPosition - targetPosition;
-                    var inFrontOfTarget = Vector3.Dot(targetForward, toMe) > 0f;
-                    if (inFrontOfTarget && distance < 15f)
-                    {
-                        // Bird sight is a 14m front-hemisphere cone and the
-                        // rear is fully blind (ComponentFlyAwayBehavior).
-                        // Seen = flushed, so a real hunter FREEZES while the
-                        // bird faces this way and advances only from behind.
-                        brain.m_componentPathfinding.Stop();
-                    }
-                    else
-                    {
-                        var destination = inFrontOfTarget ? behindPoint : targetPosition;
-                        brain.m_componentPathfinding.SetDestination(
-                            destination, 0.55f, 1.2f, 0,
-                            useRandomMovements: false, ignoreHeightDifference: false,
-                            raycastDestination: false, null!);
-                    }
+                    // Straight in, quietly. The freeze-and-circle-behind dance
+                    // that used to live here was answering
+                    // ComponentFlyAwayBehavior.IsPredator, and since v0.11.5 the
+                    // companion is Category=Bird and no longer trips it — being
+                    // SEEN is free now. Waiting for a bird to turn its back was
+                    // pure lost time (playtest 13: two stalks, two birds gone).
+                    // Noise still flushes them, hence the sneak flag.
+                    brain.m_componentPathfinding.SetDestination(
+                        targetPosition, 0.55f, 1.2f, 0,
+                        useRandomMovements: false, ignoreHeightDifference: false,
+                        raycastDestination: false, null!);
                 }
                 else
                 {

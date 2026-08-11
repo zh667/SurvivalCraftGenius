@@ -39,6 +39,7 @@ public sealed class BuildShelterOrder(
     private bool _planned;
     private int _stuckCount;
     private GeniusLeveling.Runner? _leveller;
+    private bool _resuming;
 
     private enum CellRole
     {
@@ -173,6 +174,22 @@ public sealed class BuildShelterOrder(
         GeniusSiteSurvey.Site? site;
         if (requestedOrigin is { } wanted)
         {
+            // Finishing what we started is not the same as starting somewhere.
+            // A half-built shelter is, to the survey, "ground with buildings on
+            // it" — hollow, uneven, and someone's property — so re-surveying the
+            // same coordinates rejected our own work and the companion wandered
+            // off to start yet another one. Playtest 13: 71/96 blocks, then
+            // "will not hold a 5x5 building", then a fresh shell next door, and
+            // the player ended up with a yard full of ruins.
+            if (ResumableAt(brain, wanted))
+            {
+                _origin = new Point3(wanted.X, wanted.Y, wanted.Z);
+                _groundY = wanted.Y;
+                AddPlanCells();
+                _resuming = true;
+                return null;
+            }
+
             site = GeniusSiteSurvey.Evaluate(brain, wanted.X, wanted.Z, Width, Length, forFarm: false);
             if (site is null)
             {
@@ -201,6 +218,8 @@ public sealed class BuildShelterOrder(
 
         _origin = site.Value.Origin;
         _groundY = site.Value.GroundY;
+        // Do not level a plot we are resuming — the "bumps" are our own walls.
+
         if (GeniusLeveling.Columns(brain, _origin.X, _origin.Z, Width, Length) is { } columns)
         {
             var ops = GeniusGroundLevel.Plan(columns, _groundY).ToList();
@@ -210,6 +229,12 @@ public sealed class BuildShelterOrder(
             }
         }
 
+        AddPlanCells();
+        return null;
+    }
+
+    private void AddPlanCells()
+    {
         foreach (var cell in GeniusShelterPlan.Cells(
             _origin.X, _groundY, _origin.Z, Width, Length, Height))
         {
@@ -217,9 +242,45 @@ public sealed class BuildShelterOrder(
                 new Point3(cell.X, cell.Y, cell.Z),
                 cell.Solid ? CellRole.Solid : CellRole.Air));
         }
-
-        return null;
     }
+
+    /// <summary>
+    /// Is there already a shelter of ours standing here to be finished?
+    ///
+    /// Counts plan cells that are supposed to be solid and already hold a
+    /// BUILT block — the same predicate that means "someone's property" when
+    /// looking at the world, which is exactly right here: natural ground is
+    /// never made of planks or bricks.
+    /// </summary>
+    private bool ResumableAt(ComponentGeniusBrain brain, Point3 wanted)
+    {
+        var terrain = brain.SubsystemTerrain.Terrain;
+        var built = 0;
+        foreach (var cell in GeniusShelterPlan.Cells(
+            wanted.X, wanted.Y, wanted.Z, Width, Length, Height))
+        {
+            if (!cell.Solid)
+            {
+                continue;
+            }
+
+            var contents = Terrain.ExtractContents(terrain.GetCellValue(cell.X, cell.Y, cell.Z));
+            if (GeniusProtectedBlocks.IsPlayerBuilt(contents))
+            {
+                built++;
+            }
+        }
+
+        return built >= MinCellsToCountAsOurs;
+    }
+
+    /// <summary>
+    /// Enough built cells that this is a structure, not a stray plank. A 5x5x3
+    /// shelter is ~96 solid cells, so this is a few percent — deliberately low,
+    /// because abandoning a half-built house is much worse than resuming one
+    /// that turned out to be the player's shed (we only ever ADD blocks to it).
+    /// </summary>
+    private const int MinCellsToCountAsOurs = 8;
 
     /// <summary>
     /// What actually happened, never what was planned.
@@ -234,6 +295,7 @@ public sealed class BuildShelterOrder(
     {
         var where = $"({_origin.X},{_groundY},{_origin.Z})";
         var levelled = _leveller?.Summary() is { Length: > 0 } l ? l + ";" : "";
+        var resumed = _resuming ? "续建:" : "";
         var needed = _plan.Count(entry => entry.Role == CellRole.Solid);
         var trouble = _problems.Count == 0
             ? ""
@@ -241,17 +303,17 @@ public sealed class BuildShelterOrder(
 
         if (_placed == 0)
         {
-            return levelled + $"房子没有盖起来:{where} 一块都没放上去(计划需要 {needed} 块){trouble}";
+            return resumed + levelled + $"房子没有盖起来:{where} 一块都没放上去(计划需要 {needed} 块){trouble}";
         }
 
         if (_problems.Count > 0 || _placed < needed)
         {
-            return levelled + $"房子只盖了一部分:{where} 放了 {_placed}/{needed} 块" +
+            return resumed + levelled + $"房子只盖了一部分:{where} 放了 {_placed}/{needed} 块" +
                 (_cleared > 0 ? $",掏空 {_cleared} 格" : "") +
                 ",墙和屋顶都还不完整,不能算房子" + trouble;
         }
 
-        return levelled + $"盖好了 {Width}x{Length} 的小屋,{Height} 格高墙,在 {where}:" +
+        return resumed + levelled + $"盖好了 {Width}x{Length} 的小屋,{Height} 格高墙,在 {where}:" +
             $"地基填满、四面墙、-Z 面一个两格门洞、屋顶齐全,共放了 {_placed} 块" +
             (_cleared > 0 ? $",掏空 {_cleared} 格" : "");
     }

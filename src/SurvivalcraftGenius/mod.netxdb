@@ -14,7 +14,14 @@
     <EntityTemplate Name="GeniusNpc" Guid="75e4ab99-72b3-4656-8bb0-db411edb2d6a" InheritanceParent="e4275171-a39f-413f-8888-4c472868364d">
       <MemberComponentTemplate Name="Creature" Guid="0cfb1d81-94e1-400e-ac01-94a3f7e57895">
         <Parameter Name="DisplayName" Guid="f47f5b40-bc71-4e00-bd3a-327b2736fb66" Value="Genius" Type="string" />
-        <Parameter Name="Category" Guid="00476060-fcae-45fc-96ee-9ea681434334" Value="LandOther" Type="Game.CreatureCategory" />
+        <!-- Bird,不是 LandOther。ComponentFlyAwayBehavior.IsPredator 判的就是
+             Category ∈ {LandPredator, WaterPredator, LandOther},而它的 ScanForDanger
+             只要"正面 14 格内有捕食者"就起飞——和噪音、潜行都无关,鸟一转身就跑,
+             所以潜行接近永远追不上。改成 Bird 后鸟不再把守护灵当捕食者。
+             副作用查过了:熊/狼/鲨鱼等的 AutoChaseMask 都含 Bird,所以照样会来打它;
+             ComponentRunAwayBehavior(陆生食草动物)根本不看 Category;
+             SubsystemCreatureSpawn 不按 Category 限量;剩下只有击杀统计归到"飞禽"一栏。 -->
+        <Parameter Name="Category" Guid="00476060-fcae-45fc-96ee-9ea681434334" Value="Bird" Type="Game.CreatureCategory" />
         <Parameter Name="ConstantSpawn" Guid="a56623e1-fb24-4f6b-8f35-861aab34a64e" Value="False" Type="bool" />
         <Parameter Name="KillVerbs" Guid="1d4a79ab-4ccf-44c5-9c9e-cdf93ebbf7f2" Value="defeated" Type="string" />
         <Parameter Name="Description" Guid="5cd75b48-86eb-46db-8129-a5218f5fdc33" Value="An AI companion spirit that listens, plans and works." Type="string" />

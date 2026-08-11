@@ -72,3 +72,40 @@
 - 拿到生肉先烤;给玩家送食物送熟的、多样的(防偏食)。
 - 找暖区:传送跳点采样群系温度沿梯度走;判断刷新潜力看温度值和标志生物,不看海拔季节。
 - 深冬(scan 显示严寒+全图)不种田不指望刷新,改囤粮/打鸵鸟/捡蛋路线。
+
+## 猎鸟:潜行救不了,得让鸟不把守护灵当捕食者(v0.11.5)
+
+playtest 13,守护灵找到鸽子和麻雀,**两次潜行接近都被飞走了**。读代码才知道潜行从一开始就
+不可能成功。
+
+`ComponentFlyAwayBehavior.ScanForDanger`:
+
+```csharp
+if (ScoreSafePlace(translation, translation, forward) < 7f) return true;   // 起飞
+```
+
+`ScoreSafePlace` 扫 16 格内所有身体,只统计 **`IsPredator`** 的:
+
+```csharp
+componentCreature.Category == LandPredator || WaterPredator || LandOther
+```
+
+取正面半球里最近那个的距离,乘 0.5 —— 所以判据是 **"正面 14 格内有捕食者" 就起飞**,
+**跟噪音、潜行、蹲下全都无关**。我们之前那套"绕到背后、被正面看到就原地冻住等它转身"
+只能拖延:鸟一边啄食一边转身,总有一刻正对着你,然后就飞了。**这不是难,是不可能。**
+
+所以改的是身份,不是走法:`GeniusNpc` 的 `Category` 从 `LandOther` 改成 **`Bird`**,
+`IsPredator` 就不再匹配它,鸟根本不会因为看见守护灵而起飞。
+
+副作用逐条查过:
+
+| | 结果 |
+|---|---|
+| 熊/狼/狮虎/鲨鱼的 `AutoChaseMask` | 都含 `Bird` → **照样会来打它**,战斗手感不变 |
+| `ComponentRunAwayBehavior`(陆生食草动物) | 根本不看 Category → 不受影响 |
+| `SubsystemCreatureSpawn` | 不按 Category 限量 → 不受影响 |
+| `ComponentHealth` 击杀统计 | 归到"飞禽"一栏(纯显示) |
+| 我们自己的代码 | 全仓库没有一处读 `Category` |
+
+噪音那条门槛还在(≥0.25、脚步 8 格、跳跃 10 格),所以 `attack(sneak=true)` 仍然要用——
+但它现在只负责"别出声",不用再演绕背了。AttackOrder 里那段冻结/绕后逻辑已删。

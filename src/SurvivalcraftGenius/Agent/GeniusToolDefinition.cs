@@ -251,7 +251,7 @@ public static class ToolCatalog
             """
             {"type":"object","properties":{
               "target_name":{"type":"string","description":"Creature display name substring, e.g. wolf/狼."},
-              "sneak":{"type":"boolean","description":"Silent approach from behind, no jumping. REQUIRED for birds and other skittish animals — they flee from normal steps within 8m, or from being faced within 16m. Slower, but the only way to reach them."}},
+              "sneak":{"type":"boolean","description":"Silent approach, no jumping. Birds no longer flee from the sight of me, but they still startle at noise within 8m — keep this on for birds and other skittish animals."}},
              "required":["target_name"]}
             """));
         registry.Register(new GeniusToolDefinition(
