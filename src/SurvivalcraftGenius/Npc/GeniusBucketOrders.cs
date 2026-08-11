@@ -117,14 +117,18 @@ public sealed class UseBucketOrder(Point3 target) : GeniusOrder
                 : "error[missing_material]: I am not carrying a water bucket (水桶)";
         }
 
-        // Water spreads. Dropping it next to the field washes the crops out and
-        // reverts the farmland — the channel has to stand off from the plot.
-        if (GeniusFarming.FarmlandNear(brain, target) is { } farmland)
+        // Water only ruins a field if it can RUN onto it. A proper channel — a
+        // pit whose four side neighbours are solid — holds the water where it
+        // was poured, which is exactly how an irrigation ditch is dug next to
+        // (or through the middle of) a plot. The first version of this guard
+        // refused anything with farmland nearby, which banned the correct
+        // technique along with the mistake.
+        if (!IsSealedPit(brain) && GeniusFarming.FarmlandNear(brain, target) is { } farmland)
         {
-            return $"error[wrong_method]: there is farmland/crops at ({farmland.X},{farmland.Y},{farmland.Z}), "
-                + "right next to that cell — poured water spreads and would wash the crops out and "
-                + "turn the soil back to dirt. Dig the channel at least 2 cells away from the plot; "
-                + "farmland hydrates from water up to 3 cells off, so it does not need to touch";
+            return $"error[wrong_method]: ({target.X},{target.Y},{target.Z}) 是敞口的,水会漫到"
+                + $"({farmland.X},{farmland.Y},{farmland.Z}) 的耕地/作物上,把作物冲走、耕地退回泥土。"
+                + "正确做法是先 dig_block 挖出一格四面有壁的水沟(田边或田中间都行),再往沟里倒——"
+                + "耕地 3 格内有水就会湿润,不需要挨着";
         }
 
         var empty = Terrain.ReplaceContents(
@@ -134,6 +138,26 @@ public sealed class UseBucketOrder(Point3 target) : GeniusOrder
         brain.SubsystemTerrain.ChangeCell(
             target.X, target.Y, target.Z, Terrain.MakeBlockValue(GeniusFarming.WaterContents));
         return $"poured the water out at ({target.X},{target.Y},{target.Z}); the bucket is empty again";
+    }
+
+    /// <summary>
+    /// Is this cell a pit the water cannot escape from? All four horizontal
+    /// neighbours solid means the poured source stays put.
+    /// </summary>
+    private bool IsSealedPit(ComponentGeniusBrain brain)
+    {
+        var terrain = brain.SubsystemTerrain.Terrain;
+        foreach (var (dx, dz) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+        {
+            var contents = Terrain.ExtractContents(
+                terrain.GetCellValue(target.X + dx, target.Y, target.Z + dz));
+            if (contents == 0 || !BlocksManager.Blocks[contents].IsCollidable)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool CarryingWater(IInventory inventory) =>

@@ -33,6 +33,7 @@ public sealed class BuildShelterOrder(
     private int _index;
     private int _placed;
     private int _cleared;
+    private int _alreadySolid;
     private float _elapsed;
     private Point3 _origin;
     private int _groundY;
@@ -106,14 +107,31 @@ public sealed class BuildShelterOrder(
 
         var (cell, role) = _plan[_index];
         var center = new Vector3(cell.X + 0.5f, cell.Y + 0.5f, cell.Z + 0.5f);
-        switch (ApproachCell(brain, center, ReachDistance, ref _stuckCount))
+
+        // Walls and roof get built from OUTSIDE. The floor and the hollowing-out
+        // happen first, while there is nothing to trap anyone; after that every
+        // remaining cell is reached from a standing spot beyond the footprint.
+        //
+        // Playtest 14, three times running: "我看到的就是你一直在你盖的房子里转圈圈".
+        // The builder laid the floor from inside, then raised walls around itself
+        // and roofed itself over. It teleported out when told to — and the very
+        // next build_shelter call walked it straight back in through the doorway.
+        // Teleport was never the missing piece; the order was walking into a box
+        // it was about to close.
+        var approachAt = role == CellRole.Solid && cell.Y > _groundY
+            ? StandSpotFor(cell)
+            : center;
+        if (Vector3.Distance(brain.Creature.ComponentBody.Position, center) > ReachDistance)
         {
-            case GeniusApproach.Result.Walking:
-                return null;
-            case GeniusApproach.Result.Unreachable:
-                _problems.Add($"({cell.X},{cell.Y},{cell.Z}) 走不到");
-                _index++;
-                return null;
+            switch (ApproachCell(brain, approachAt, 1.6f, ref _stuckCount))
+            {
+                case GeniusApproach.Result.Walking:
+                    return null;
+                case GeniusApproach.Result.Unreachable:
+                    _problems.Add($"({cell.X},{cell.Y},{cell.Z}) 走不到");
+                    _index++;
+                    return null;
+            }
         }
 
         _elapsed += dt;
@@ -141,7 +159,11 @@ public sealed class BuildShelterOrder(
 
         if (existing != 0 && BlocksManager.Blocks[existing].IsCollidable)
         {
-            // Natural ground already does the job — leave it and save a block.
+            // Natural ground, or something we put there on an earlier pass,
+            // already does the job. It still COUNTS as done — not counting it
+            // made a resumed house report "一块都没放上去" while it was in fact
+            // being finished (playtest 14).
+            _alreadySolid++;
             _index++;
             return null;
         }
@@ -233,6 +255,28 @@ public sealed class BuildShelterOrder(
         return null;
     }
 
+    /// <summary>
+    /// Where to stand to place a wall or roof cell: one block beyond the
+    /// footprint on that cell's own side, at floor level. Reach is 4.5, so the
+    /// whole of that wall is workable from there without ever stepping inside.
+    /// </summary>
+    private Vector3 StandSpotFor(Point3 cell)
+    {
+        var centreX = _origin.X + ((Width - 1) / 2f);
+        var centreZ = _origin.Z + ((Length - 1) / 2f);
+        var offsetX = cell.X - centreX;
+        var offsetZ = cell.Z - centreZ;
+        return Math.Abs(offsetX) >= Math.Abs(offsetZ)
+            ? new Vector3(
+                (offsetX >= 0 ? _origin.X + Width : _origin.X - 1) + 0.5f,
+                _groundY + 1.5f,
+                cell.Z + 0.5f)
+            : new Vector3(
+                cell.X + 0.5f,
+                _groundY + 1.5f,
+                (offsetZ >= 0 ? _origin.Z + Length : _origin.Z - 1) + 0.5f);
+    }
+
     private void AddPlanCells()
     {
         foreach (var cell in GeniusShelterPlan.Cells(
@@ -301,20 +345,22 @@ public sealed class BuildShelterOrder(
             ? ""
             : $";{_problems.Count} 格没做成: " + string.Join(", ", _problems.Take(5));
 
-        if (_placed == 0)
+        var standing = _placed + _alreadySolid;
+        if (standing == 0)
         {
             return resumed + levelled + $"房子没有盖起来:{where} 一块都没放上去(计划需要 {needed} 块){trouble}";
         }
 
-        if (_problems.Count > 0 || _placed < needed)
+        if (_problems.Count > 0 || standing < needed)
         {
-            return resumed + levelled + $"房子只盖了一部分:{where} 放了 {_placed}/{needed} 块" +
+            return resumed + levelled + $"房子只盖了一部分:{where} 立起 {standing}/{needed} 块" +
+                (_placed != standing ? $"(这次新放 {_placed} 块)" : "") +
                 (_cleared > 0 ? $",掏空 {_cleared} 格" : "") +
                 ",墙和屋顶都还不完整,不能算房子" + trouble;
         }
 
         return resumed + levelled + $"盖好了 {Width}x{Length} 的小屋,{Height} 格高墙,在 {where}:" +
-            $"地基填满、四面墙、-Z 面一个两格门洞、屋顶齐全,共放了 {_placed} 块" +
+            $"地基填满、四面墙、-Z 面一个两格门洞、屋顶齐全,{needed} 块全部到位" +
             (_cleared > 0 ? $",掏空 {_cleared} 格" : "");
     }
 

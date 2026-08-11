@@ -427,5 +427,25 @@
       "build_shelter"
     ],
     "expect_args": {}
+  },
+  {
+    "name": "pour_into_channel_not_field",
+    "user": "水沟已经挖好了，在 (-57,103,178)，把水倒进去",
+    "world_state": "我的位置: (-56,104,178);玩家位置: (-56,104,177);相距 1m;背包: 水桶×1;已知地标: 农田(-56,103,177)",
+    "accept_tools": [
+      "use_bucket"
+    ],
+    "expect_args": {}
+  },
+  {
+    "name": "no_water_nearby_travels",
+    "user": "附近64米都没水，你想办法弄点水回来",
+    "world_state": "我的位置: (-55,104,178);玩家位置: (-56,104,178);相距 1m",
+    "accept_tools": [
+      "teleport",
+      "find_blocks",
+      "list_waypoints"
+    ],
+    "expect_args": {}
   }
 ]

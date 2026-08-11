@@ -84,6 +84,7 @@ public static class GeniusSiteSurvey
             }
         }
 
+        var note = "";
         var cells = heights.Count;
         var spread = heights.Max() - heights.Min();
         var light = lightSum / cells;
@@ -95,9 +96,17 @@ public static class GeniusSiteSurvey
         // Farmland needs diggable soil AND light 9, or nothing will ever grow
         // there — the exact trap the last plot fell into ("那片田附近多是鹅卵石
         // 和空洞,光照还低于生长要求").
-        if (forFarm && (soilCapable < cells || light < 9))
+        if (forFarm && soilCapable < cells)
         {
             return null;
+        }
+
+        // Light below 9 used to reject the plot outright. It is a torch — the
+        // same "fix the precondition instead of refusing" as levelling.
+        // The player said it plainly: 光照可以插火把.
+        if (forFarm && light < 9)
+        {
+            note = "";
         }
 
         var score = 100 - (spread * 25) + (light >= 9 ? 10 : -30)
@@ -111,7 +120,11 @@ public static class GeniusSiteSurvey
             .ToList();
         var targetY = GeniusGroundLevel.ChooseTargetY(heights);
         var work = GeniusGroundLevel.Describe(columns, targetY);
-        var note = work is null ? "完全平坦" : $"高差{spread}格,我先整地({work})";
+        note = work is null ? "完全平坦" : $"高差{spread}格,我先整地({work})";
+        if (forFarm && light < 9)
+        {
+            note += $"、光照{light}(<9 长不了,我会插火把补光)";
+        }
         if (forFarm)
         {
             note += WaterWithin(brain, x, GroundOf(heights), z, width, length)

@@ -27,6 +27,19 @@ public sealed class TimedDigger
         _cell = cell;
         _timeSpent = 0f;
         var cellValue = brain.SubsystemTerrain.Terrain.GetCellValue(cell.X, cell.Y, cell.Z);
+
+        // Every tunnel, shaft and mining trip goes through this one place, so
+        // this is where "do not dig that" belongs. Infinity makes it report
+        // Undiggable and the caller routes around, exactly as it does for
+        // bedrock. Playtest 14: sent for saltpeter, the companion sank a shaft
+        // from the middle of the field it had just tilled and came back to one
+        // surviving farmland cell out of nine.
+        if (GeniusProtectedBlocks.IsOffLimitsForDigging(Terrain.ExtractContents(cellValue)))
+        {
+            _timeNeeded = float.PositiveInfinity;
+            return;
+        }
+
         EquipBestToolFor(brain, cellValue);
         _timeNeeded = brain.Miner.CalculateDigTime(
             cellValue,

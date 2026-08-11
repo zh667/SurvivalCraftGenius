@@ -813,6 +813,15 @@ public sealed class DigOrder(Point3 target) : GeniusOrder
             return "the block is already gone";
         }
 
+        // Refuse before walking there, not after. dig_block is the one digging
+        // path that does not go through TimedDigger.Start, so it needs its own
+        // copy of the rule.
+        if (GeniusProtectedBlocks.IsOurFarmland(contents))
+        {
+            return $"error[wrong_method]: ({target.X},{target.Y},{target.Z}) 是耕地/作物,挖了这块田就废了。"
+                + "要收成用 harvest_crops;要在附近挖矿就换个不在田里的落点";
+        }
+
         var position = brain.Creature.ComponentBody.Position;
         var distance = Vector3.Distance(position, BlockCenter);
         if (!_digging)

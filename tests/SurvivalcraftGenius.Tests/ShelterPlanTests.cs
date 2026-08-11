@@ -130,3 +130,60 @@ public class ShelterPlanTests
                 && cell.Z > OriginZ && cell.Z < OriginZ + l - 1));
     }
 }
+
+/// <summary>
+/// The builder must never be inside the box it is closing. Playtest 14, three
+/// times: "我看到的就是你一直在你盖的房子里转圈圈".
+/// </summary>
+public class ShelterBuildOrderTests
+{
+    private const int GroundY = 100;
+
+    [Fact]
+    public void FloorComesBeforeAnyWall()
+    {
+        // The floor is walked on, so it has to be laid while there is still a
+        // way out; every wall afterwards is placed from outside.
+        var cells = GeniusShelterPlan.Cells(0, GroundY, 0, 5, 5, 3).ToList();
+        var lastFloor = cells.FindLastIndex(c => c.Solid && c.Y == GroundY);
+        var firstWall = cells.FindIndex(c => c.Solid && c.Y > GroundY);
+
+        Assert.True(lastFloor >= 0 && firstWall > lastFloor);
+    }
+
+    [Fact]
+    public void RoofIsTheLastThingPlaced()
+    {
+        var cells = GeniusShelterPlan.Cells(0, GroundY, 0, 5, 5, 3).ToList();
+        var roofY = cells.Where(c => c.Solid).Max(c => c.Y);
+        var firstRoof = cells.FindIndex(c => c.Solid && c.Y == roofY);
+        var lastNonRoof = cells.FindLastIndex(c => c.Solid && c.Y < roofY);
+
+        Assert.True(firstRoof > lastNonRoof, "the roof must go on after the walls");
+    }
+
+    [Theory]
+    [InlineData(5, 5)]
+    [InlineData(7, 6)]
+    [InlineData(9, 9)]
+    public void EveryWallCellHasAStandingSpotOutsideTheFootprint(int width, int length)
+    {
+        // Mirrors BuildShelterOrder.StandSpotFor: push out along the dominant
+        // axis. If any wall cell's spot fell inside, the builder would seal
+        // itself in again.
+        var centreX = (width - 1) / 2f;
+        var centreZ = (length - 1) / 2f;
+        foreach (var cell in GeniusShelterPlan.Cells(0, GroundY, 0, width, length, 3)
+                     .Where(c => c.Solid && c.Y > GroundY))
+        {
+            var offsetX = cell.X - centreX;
+            var offsetZ = cell.Z - centreZ;
+            var (spotX, spotZ) = Math.Abs(offsetX) >= Math.Abs(offsetZ)
+                ? (offsetX >= 0 ? width : -1, cell.Z)
+                : (cell.X, offsetZ >= 0 ? length : -1);
+
+            var inside = spotX >= 0 && spotX < width && spotZ >= 0 && spotZ < length;
+            Assert.False(inside, $"cell ({cell.X},{cell.Y},{cell.Z}) would be built from inside");
+        }
+    }
+}

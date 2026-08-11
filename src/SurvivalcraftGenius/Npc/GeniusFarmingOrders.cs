@@ -139,6 +139,7 @@ public sealed class TillSoilOrder(Point3 origin, int width, int length) : Genius
 
         if (_index >= _plot.Count)
         {
+            LightThePlot(brain, inventory);
             return Summary() + AdviceForPlot(brain);
         }
 
@@ -230,10 +231,71 @@ public sealed class TillSoilOrder(Point3 origin, int width, int length) : Genius
         }
     }
 
+    /// <summary>
+    /// Crops need light 9 or they never grow at all — a hard gate, not a
+    /// modifier. A torch is one block; refusing the whole plot over it (which
+    /// is what the survey used to do) is not what a player would do.
+    /// </summary>
+    private void LightThePlot(ComponentGeniusBrain brain, IInventory inventory)
+    {
+        if (_tilled == 0 || _plot.Count == 0)
+        {
+            return;
+        }
+
+        var terrain = brain.SubsystemTerrain.Terrain;
+        var middle = _plot[_plot.Count / 2];
+        var light = Terrain.ExtractLight(
+            terrain.GetCellValue(middle.X, middle.Y + 1, middle.Z));
+        if (light >= 9)
+        {
+            return;
+        }
+
+        // Beside the plot, not on it: a torch standing on farmland reverts it.
+        for (var slot = 0; slot < inventory.SlotsCount; slot++)
+        {
+            if (inventory.GetSlotCount(slot) <= 0
+                || BlocksManager.Blocks[Terrain.ExtractContents(inventory.GetSlotValue(slot))]
+                    is not TorchBlock)
+            {
+                continue;
+            }
+
+            foreach (var (dx, dz) in new[] { (-1, 0), (1, 0), (0, -1), (0, 1) })
+            {
+                var x = middle.X + dx;
+                var z = middle.Z + dz;
+                if (Terrain.ExtractContents(terrain.GetCellValue(x, middle.Y + 1, z)) != 0
+                    || !GeniusFarming.HasSolidSupport(brain, new Point3(x, middle.Y + 1, z)))
+                {
+                    continue;
+                }
+
+                brain.SubsystemTerrain.DestroyCell(
+                    0, x, middle.Y + 1, z,
+                    inventory.GetSlotValue(slot), noDrop: true, noParticleSystem: true);
+                inventory.RemoveSlotItems(slot, 1);
+                _torched = true;
+                return;
+            }
+        }
+
+        _needsTorch = true;
+    }
+
+    private bool _torched;
+    private bool _needsTorch;
+
     private string Summary()
     {
         var levelled = _leveller?.Summary() is { Length: > 0 } l ? l + ";" : "";
-        var text = levelled + $"tilled {_tilled} cells into farmland around " +
+        var lightNote = _torched
+            ? ";光照不够,已在田边插了火把"
+            : _needsTorch
+                ? ";光照不足9作物不会生长,我没有火把——craft 火把后 place_block 插在田边(别插田上)"
+                : "";
+        var text = levelled + lightNote + $"tilled {_tilled} cells into farmland around " +
             $"({origin.X},{_levelledY ?? origin.Y},{origin.Z})" +
             (_snapped > 0
                 ? $" (snapped {_snapped} cells to the real ground height — the y you gave was off)"

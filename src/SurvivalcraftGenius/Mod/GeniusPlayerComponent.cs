@@ -1486,8 +1486,11 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             return null;
         }
 
+        // Grounded first, then nearest. We only have melee, so an airborne duck
+        // is not a target, it is a 45-second wait — and playtest 14 spent two of
+        // them in a row on flying ducks while a landed bird stood nearby.
         ComponentCreature? best = null;
-        var bestDistance = 24f;
+        var bestScore = float.MaxValue;
         foreach (var body in m_subsystemBodies.Bodies)
         {
             var creature = body.Entity.FindComponent<ComponentCreature>();
@@ -1501,10 +1504,17 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             }
 
             var distance = Vector3.Distance(body.Position, brain.Creature.ComponentBody.Position);
-            if (distance < bestDistance)
+            if (distance > 24f)
+            {
+                continue;
+            }
+
+            var airborne = !body.StandingOnValue.HasValue && body.ImmersionFactor <= 0f;
+            var score = distance + (airborne ? 1000f : 0f);
+            if (score < bestScore)
             {
                 best = creature;
-                bestDistance = distance;
+                bestScore = score;
             }
         }
 
