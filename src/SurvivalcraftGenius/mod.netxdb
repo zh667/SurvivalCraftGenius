@@ -26,6 +26,13 @@
       <MemberComponentTemplate Name="Spawn" Guid="b636419c-cd28-4112-ae70-c1d42a93e4e4">
         <Parameter Name="AutoDespawn" Guid="57871b61-0e2f-4b53-9ff6-5355bed3030e" Value="False" Type="bool" />
       </MemberComponentTemplate>
+      <!-- 抗性:继承默认是攻击 10 / 摔落 7.5,比任何一只狼都不如。20 等于 21 级
+           玩家,伤害是 attackPower/AttackResilience,所以这是直接减半。 -->
+      <MemberComponentTemplate Name="Health" Guid="7a1c0f2e-5d84-4b31-9f60-2c8e4d7a9b13">
+        <Parameter Name="AttackResilience" Guid="3c9b7e51-08da-4a26-b7f4-15ea6c380d97" Value="20" Type="float" />
+        <Parameter Name="FallResilience" Guid="d0e42a68-91cf-4b73-8a15-6f2b90c4e5da" Value="20" Type="float" />
+        <Parameter Name="FireResilience" Guid="15f836b2-4c7d-49ae-b208-83d6ea51c7f4" Value="20" Type="float" />
+      </MemberComponentTemplate>
       <MemberComponentTemplate Name="Locomotion" Guid="b08bb0a0-7dd9-4524-a2bd-40b072465c96">
         <Parameter Name="WalkSpeed" Guid="2519b83b-3296-4c08-88b6-6acde610aa15" Value="4.5" Type="float" />
         <Parameter Name="TurnSpeed" Guid="e1775aeb-e63a-4f8b-a975-71ae16eaf7c2" Value="8" Type="float" />

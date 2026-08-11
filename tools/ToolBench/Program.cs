@@ -17,6 +17,7 @@ using SurvivalcraftGenius.ToolBench;
 
 var samplesOverride = (int?)null;
 var filter = "";
+var budgetOnly = false;
 for (var i = 0; i < args.Length; i++)
 {
     switch (args[i])
@@ -27,7 +28,16 @@ for (var i = 0; i < args.Length; i++)
         case "--filter" when i + 1 < args.Length:
             filter = args[++i];
             break;
+        case "--budget":
+            budgetOnly = true;
+            break;
     }
+}
+
+if (budgetOnly)
+{
+    PayloadBudget.Report(ToolCatalog.CreateDefaultRegistry());
+    return 0;
 }
 
 var benchDir = FindBenchmarkDir();

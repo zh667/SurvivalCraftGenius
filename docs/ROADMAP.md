@@ -130,6 +130,27 @@ src/SurvivalcraftGenius/
       (采集发生在服务端)、状态 HUD 只显示"思考中"
 - [ ] 多语言(沿用 SCTM 的 Lang 资源体系)
 
+### M5 — 反射层(身体)
+
+出发点是反编译对照「工具人」(纯 FSM、零 token)后的结论:**前四次实测的十三条抱怨里,
+只有两条是模型跑偏,其余全是身体不听使唤。** 大模型不是中性的,它是放大器——身体越差,
+每个本该反射掉的动作都要多付一次思考的钱(见 [TOKEN-COST.md](TOKEN-COST.md))。
+
+分工划死:**凡是有唯一正确答案的动作,不许经过大模型**;大模型只留"定目标"和
+"出了预料外的事怎么办"。
+
+- [x] 抗性与护甲(v0.11.0):三项抗性 10/7.5/10 → 20/20/20(=21 级玩家);护甲走 `AttackBody`
+      钩子直接从背包读,背着即穿着(引擎的 `ComponentClothing` 对无 ComponentPlayer 的实体
+      是封死的)。见 [MECHANICS-DEATH.md](MECHANICS-DEATH.md) §9-10
+- [x] 走上农田自动蹲下(v0.11.0):`CanCrouch` 默认只给玩家开,NPC 根本蹲不下去,于是
+      `till_soil` 一路踩坏自己刚翻的地。见 [MECHANICS-FARMING.md](MECHANICS-FARMING.md) §9
+- [x] 收割 `harvest_crops`(v0.11.0):种下去没人收,农事循环是断的。成熟阈值读自各作物
+      自己的 `GetDropValues`。见 [MECHANICS-FARMING.md](MECHANICS-FARMING.md) §10
+- [ ] 按距离自动换手(近战/远程),不再为换武器花一次 LLM 往返
+- [ ] 玩家打谁我打谁(`OnMinerHit` 钩子),不再为"帮我打"花一次往返
+- [ ] 远程时保持射击距离(风筝)
+- [ ] 头顶世界空间血条(`OnModelRendererDrawExtra`),取代角落 HUD
+
 ## 风险与预案
 
 | 风险 | 预案 |

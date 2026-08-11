@@ -109,6 +109,33 @@ public sealed class GeniusModLoader : ModLoader
         return false;
     }
 
+    /// <summary>
+    /// Engine hook, fired before the vanilla armour step in
+    /// ComponentMiner.AttackBody. That step resolves a ComponentClothing, which
+    /// a creature can never carry (it requires a ComponentPlayer), so this is
+    /// the only place the companion's armour can act.
+    /// </summary>
+    public override bool AttackBody(
+        ComponentBody target,
+        ComponentCreature attacker,
+        Engine.Vector3 hitPoint,
+        Engine.Vector3 hitDirection,
+        ref float attackPower,
+        bool isMeleeAttack)
+    {
+        if (target?.Entity.FindComponent<Npc.ComponentGeniusBrain>() is not { } brain
+            || brain.Miner?.Inventory is not { } inventory)
+        {
+            return false;
+        }
+
+        attackPower = Npc.GeniusArmor.ApplyProtection(
+            inventory, attackPower, s_random, target.Position, target.Project);
+        return false;
+    }
+
+    private static readonly Engine.Random s_random = new();
+
     public override void __ModInitialize()
     {
         // Manual registration is mandatory: the game's auto-registration of
@@ -121,6 +148,7 @@ public sealed class GeniusModLoader : ModLoader
         ModsManager.RegisterHook("DeadBeforeDrops", this);
         ModsManager.RegisterHook("OnPlayerDead", this);
         ModsManager.RegisterHook("OnPlayerSpawned", this);
+        ModsManager.RegisterHook("AttackBody", this);
         var version = typeof(GeniusModLoader).Assembly.GetName().Version?.ToString(3) ?? "?";
         Engine.Log.Information($"[Genius] Mod initialized (v{version}).");
     }

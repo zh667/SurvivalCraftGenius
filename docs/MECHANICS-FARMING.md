@@ -114,3 +114,49 @@ playtest 9 里守护灵被问"难点在什么地方",自己答对了根因:
 平面图几何抽到了 `GeniusShelterPlan`(不依赖引擎),`ShelterPlanTests` 断言
 地基无洞、屋顶完整、每层墙都合围、门洞正好两格、内部每层都是空的、同一格不会既实心又空。
 把门洞改成三格高,四个测试立刻红。
+
+## 9. 它一直在踩坏自己刚翻的田(v0.11.0 修)
+
+第 3 节记过 `SubsystemSoilBlockBehavior.OnCollide`,但只当成一条注意事项写在文档里,
+代码里从来没处理过。而 `till_soil` 是**逐列走过去**翻的——它一路把自己刚翻好的地踩回泥土。
+
+```csharp
+// SubsystemSoilBlockBehavior.OnCollide
+if (componentBody.Mass > 20f && componentBody.CrouchFactor == 0f) { ... m_toDegrade[...] = true; }
+```
+
+守护灵 `Mass=80`,`CrouchFactor` 恒为 0。为什么恒为 0:
+
+```csharp
+// ComponentBody.Load:349
+CanCrouch = base.Entity.FindComponent<ComponentPlayer>() != null;
+```
+
+`TargetCrouchFactor` 和 `CrouchFactor` 两个 setter 都会在 `!CanCrouch` 时把值夹回 0,
+**所以任何 NPC 根本蹲不下去**。「工具人」绕开这一点的办法是钩 `TerrainChangeCell`,
+把 5 格内的 168→2 一律 `skip=true` 取消掉——有效,但那是背着引擎改结果。
+
+`CanCrouch` 是个**公开字段**,不是只读属性。所以我们在 `ComponentGeniusBrain.Load` 里直接
+`ComponentBody.CanCrouch = true`,然后 `CrouchOverFarmland()` 每帧检查脚下那格:是 168 就
+`IsSneaking = true`(这个引擎里 `IsSneaking` 就是蹲下,它只读 `CrouchFactor`)。走出田就取消,
+且只取消**自己设的**那次——潜行接近猎物的 order 有自己的 stance,不能被它清掉。
+
+附带好处:`ComponentBody.cs:558` 那条"挤不出去就蹲下再试"的脱困路径,现在守护灵也吃得到。
+
+## 10. 收割:各作物照自己的掉落表,提前割纯亏
+
+株一样会消失,所以早割不是"慢一点",是**换来更差的东西**。阈值全部读自各 `GetDropValues`:
+
+| 作物 | 阈值 | 依据 |
+|---|---|---|
+| 黑麦(种) | size **7** | 5→1 颗种子,6→1-2 颗种子,**7 才出麦**(data 5 而非种子的 data 4),外加 50% 概率多掉一样 |
+| 黑麦(野) | size **>2** | 没有出麦这一档;33% 概率掉 1 颗种子 |
+| 棉花 | size **2** | `GetDropValues` 的判断是 `GetSize(data) == 2`,不到就什么都没有;2 也是上限。种的还 1-2 颗种子,野的不还 |
+| 南瓜 | size **7** | 任何 size≥1 都掉,但 `GetNutritionalValue` 在 size!=7 时返回 0 |
+
+「工具人」的对应函数里,判断野生作物的那一段是**死代码**——前面三个 `if` 已经 return 了,
+野黑麦和野棉花永远收不到。别照抄。
+
+收割走各方块自己的 `GetDropValues` 再 `AddPickable`,不是 `DestroyCell`,这样 7 级黑麦的
+麦粒和那次 50% 的加掉都和玩家自己割一模一样。(本版引擎的 `AddPickable` 没有 ownerEntity
+参数——那是更新的重载——所以掉落是普通掉落物,靠边割边捡。)

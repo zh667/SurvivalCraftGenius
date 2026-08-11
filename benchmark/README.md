@@ -14,6 +14,7 @@ echo "GENIUS_BENCH_API_KEY=sk-..." >> benchmark/.env
 
 dotnet run --project tools/ToolBench -p:SurvivalcraftDir=$HOME/sc-libs/
 # 快速冒烟:--samples 1;只跑部分:--filter mine
+# 只数每步固定 token 开销(不需要 key):--budget,见 docs/TOKEN-COST.md
 ```
 
 环境变量(shell 优先于 .env):`GENIUS_BENCH_API_KEY`(缺省时只校验用例、跳过实跑)、
