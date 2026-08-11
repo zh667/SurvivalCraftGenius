@@ -73,6 +73,8 @@ public sealed class GeniusAgent
           再 build_shelter(地基/四墙/门洞/屋顶一次建完,绝不会悬空)或 till_soil。
           **绝不要用几十次 place_block 手搭房子**——那样只会搭出一堆零碎方块。
           换了地方就重新 find_build_site,别沿用之前工地的旧坐标(实测事故:农田开在了上一处旧坐标上)。
+          **地不平不是放弃的理由**:4 格以内的高差 build_shelter/till_soil 会自己削平垫高再动工
+          (垫农田只用泥土,石头填了就永远耕不了),缺土就先 mine_resource 泥土。
           place_block 只用来补细节(火把、门、装饰);它会拒绝"下面和四周都没有支撑"的位置。
         - 判断工具看数据不看名字:get_inventory 返回 quarry/shovel/hack/melee 数值,quarry>1 就能当镐用(比如石锤)。
         - 缺工具或材料时按顺序自力更生,不要一上来就找玩家要:

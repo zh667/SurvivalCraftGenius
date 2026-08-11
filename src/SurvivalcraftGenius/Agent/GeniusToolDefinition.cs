@@ -93,9 +93,10 @@ public static class ToolCatalog
             """));
         registry.Register(new GeniusToolDefinition(
             "find_build_site",
-            "Best nearby spot for a building or a field: flat, solid all the way under, no lava or water, lit, "
-            + "not the player's property. Call BEFORE building or tilling — guessing a coordinate is how "
-            + "you end up on a hollow or a cliff edge.",
+            "Best nearby spot for a building or a field: solid all the way under, no lava or water, lit, "
+            + "not the player's property. Uneven ground is fine — up to 4 blocks of slope gets levelled "
+            + "before work starts, and the answer says how much digging and filling that is. Call "
+            + "BEFORE building or tilling — guessing a coordinate is how you end up on a hollow.",
             """
             {"type":"object","properties":{
               "width":{"type":"integer","description":"Footprint along X, default 5."},
@@ -105,9 +106,10 @@ public static class ToolCatalog
             """));
         registry.Register(new GeniusToolDefinition(
             "build_shelter",
-            "Build a whole shelter in one call: filled floor (never floating), four walls, a doorway and a "
-            + "roof, from bulk blocks in my inventory. Give x/y/z, or omit to have me survey a spot. "
-            + "Never hand-place a house with place_block — that yields loose blocks, not a building.",
+            "Build a whole shelter in one call: level the ground first, then filled floor (never floating), "
+            + "four walls, a doorway and a roof, from bulk blocks in my inventory. Give x/y/z, or omit "
+            + "to have me survey a spot. Never hand-place a house with place_block — that yields loose "
+            + "blocks, not a building.",
             """
             {"type":"object","properties":{
               "x":{"type":"integer"},
@@ -121,7 +123,8 @@ public static class ToolCatalog
         registry.Register(new GeniusToolDefinition(
             "till_soil",
             "Rake a rectangle of ground into farmland. The only way to make farmland — dig_block just removes "
-            + "the dirt. Handles grass's two passes itself. Nothing may sit on top of the cells.",
+            + "the dirt. Levels the plot first (with soil, never stone) so the field is flat rather than "
+            + "terraced, and handles grass's two passes itself. Nothing may sit on top of the cells.",
             """
             {"type":"object","properties":{
               "x":{"type":"integer"},

@@ -38,6 +38,7 @@ public sealed class BuildShelterOrder(
     private int _groundY;
     private bool _planned;
     private int _stuckCount;
+    private GeniusLeveling.Runner? _leveller;
 
     private enum CellRole
     {
@@ -83,6 +84,20 @@ public sealed class BuildShelterOrder(
             return "error[internal]: no inventory";
         }
 
+        // Flatten first. A player faced with a lumpy patch digs the humps off
+        // and fills the dips before laying a floor; the survey used to just
+        // refuse the ground instead (playtest 12: "没有合适的地形你可以自改造嘛").
+        if (_leveller is { Done: false } leveller)
+        {
+            leveller.Step(brain, dt);
+            if (leveller.Failure is { } levelFailure)
+            {
+                return levelFailure;
+            }
+
+            return null;
+        }
+
         if (_index >= _plan.Count)
         {
             return Summary() + Advice(brain);
@@ -92,9 +107,9 @@ public sealed class BuildShelterOrder(
         var center = new Vector3(cell.X + 0.5f, cell.Y + 0.5f, cell.Z + 0.5f);
         switch (ApproachCell(brain, center, ReachDistance, ref _stuckCount))
         {
-            case Approach.Walking:
+            case GeniusApproach.Result.Walking:
                 return null;
-            case Approach.Unreachable:
+            case GeniusApproach.Result.Unreachable:
                 _problems.Add($"({cell.X},{cell.Y},{cell.Z}) 走不到");
                 _index++;
                 return null;
@@ -186,6 +201,15 @@ public sealed class BuildShelterOrder(
 
         _origin = site.Value.Origin;
         _groundY = site.Value.GroundY;
+        if (GeniusLeveling.Columns(brain, _origin.X, _origin.Z, Width, Length) is { } columns)
+        {
+            var ops = GeniusGroundLevel.Plan(columns, _groundY).ToList();
+            if (ops.Count > 0)
+            {
+                _leveller = new GeniusLeveling.Runner(ops, forFarm: false);
+            }
+        }
+
         foreach (var cell in GeniusShelterPlan.Cells(
             _origin.X, _groundY, _origin.Z, Width, Length, Height))
         {
@@ -209,6 +233,7 @@ public sealed class BuildShelterOrder(
     private string Summary()
     {
         var where = $"({_origin.X},{_groundY},{_origin.Z})";
+        var levelled = _leveller?.Summary() is { Length: > 0 } l ? l + ";" : "";
         var needed = _plan.Count(entry => entry.Role == CellRole.Solid);
         var trouble = _problems.Count == 0
             ? ""
@@ -216,17 +241,17 @@ public sealed class BuildShelterOrder(
 
         if (_placed == 0)
         {
-            return $"房子没有盖起来:{where} 一块都没放上去(计划需要 {needed} 块){trouble}";
+            return levelled + $"房子没有盖起来:{where} 一块都没放上去(计划需要 {needed} 块){trouble}";
         }
 
         if (_problems.Count > 0 || _placed < needed)
         {
-            return $"房子只盖了一部分:{where} 放了 {_placed}/{needed} 块" +
+            return levelled + $"房子只盖了一部分:{where} 放了 {_placed}/{needed} 块" +
                 (_cleared > 0 ? $",掏空 {_cleared} 格" : "") +
                 ",墙和屋顶都还不完整,不能算房子" + trouble;
         }
 
-        return $"盖好了 {Width}x{Length} 的小屋,{Height} 格高墙,在 {where}:" +
+        return levelled + $"盖好了 {Width}x{Length} 的小屋,{Height} 格高墙,在 {where}:" +
             $"地基填满、四面墙、-Z 面一个两格门洞、屋顶齐全,共放了 {_placed} 块" +
             (_cleared > 0 ? $",掏空 {_cleared} 格" : "");
     }

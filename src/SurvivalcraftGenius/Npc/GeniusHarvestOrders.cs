@@ -110,9 +110,9 @@ public sealed class HarvestCropsOrder(Point3? center, int radius, bool includeWi
         var center2 = Center(cell);
         switch (ApproachCell(brain, center2, ReachDistance, ref _stuckCount))
         {
-            case Approach.Walking:
+            case GeniusApproach.Result.Walking:
                 return null;
-            case Approach.Unreachable:
+            case GeniusApproach.Result.Unreachable:
                 _index++;
                 return null;
         }

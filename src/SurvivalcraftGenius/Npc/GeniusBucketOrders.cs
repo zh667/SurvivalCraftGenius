@@ -54,9 +54,9 @@ public sealed class UseBucketOrder(Point3 target) : GeniusOrder
         var center = new Vector3(target.X + 0.5f, target.Y + 0.5f, target.Z + 0.5f);
         switch (ApproachCell(brain, center, ReachDistance, ref _stuckCount))
         {
-            case Approach.Walking:
+            case GeniusApproach.Result.Walking:
                 return null;
-            case Approach.Unreachable:
+            case GeniusApproach.Result.Unreachable:
                 return $"error[no_path]: cannot get close enough to ({target.X},{target.Y},{target.Z})";
         }
 

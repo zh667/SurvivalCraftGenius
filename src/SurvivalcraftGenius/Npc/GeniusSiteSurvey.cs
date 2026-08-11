@@ -22,7 +22,16 @@ namespace SurvivalcraftGenius.Npc;
 public static class GeniusSiteSurvey
 {
     /// <summary>Biggest step between columns still considered one flat plot.</summary>
+    /// <summary>Spread that needs no work at all.</summary>
     private const int MaxLevelSpread = 1;
+
+    /// <summary>
+    /// Roughest ground we will still take on. Anything up to this gets levelled
+    /// before building instead of rejected — a slope is not a reason to give up,
+    /// it is some digging and filling. Past 4 it stops being a site and starts
+    /// being a cliff, and the earthworks would cost more than moving.
+    /// </summary>
+    public const int MaxLevellableSpread = 4;
 
     public readonly record struct Site(
         Point3 Origin, int Score, int GroundY, int Spread, int Light, string Note);
@@ -78,7 +87,7 @@ public static class GeniusSiteSurvey
         var cells = heights.Count;
         var spread = heights.Max() - heights.Min();
         var light = lightSum / cells;
-        if (spread > MaxLevelSpread + 2)
+        if (spread > MaxLevellableSpread)
         {
             return null;
         }
@@ -95,7 +104,14 @@ public static class GeniusSiteSurvey
             + (forFarm ? soilCapable * 100 / cells : 0)
             + (WaterWithin(brain, x, GroundOf(heights), z, width, length) ? (forFarm ? 30 : 0) : 0);
 
-        var note = spread == 0 ? "完全平坦" : $"高差{spread}格(可垫平)";
+        // Say what the earthworks cost, not just that the ground is uneven —
+        // "高差2格" reads like a defect, "削平3格、垫高2格" reads like a job.
+        var columns = heights
+            .Select((h, i) => new GeniusGroundLevel.Column(x + (i / length), z + (i % length), h))
+            .ToList();
+        var targetY = GeniusGroundLevel.ChooseTargetY(heights);
+        var work = GeniusGroundLevel.Describe(columns, targetY);
+        var note = work is null ? "完全平坦" : $"高差{spread}格,我先整地({work})";
         if (forFarm)
         {
             note += WaterWithin(brain, x, GroundOf(heights), z, width, length)
@@ -103,8 +119,7 @@ public static class GeniusSiteSurvey
                 : "、附近没水(要挖水渠,离田至少2格)";
         }
 
-        return new Site(
-            new Point3(x, GroundOf(heights), z), score, GroundOf(heights), spread, light, note);
+        return new Site(new Point3(x, targetY, z), score, targetY, spread, light, note);
     }
 
     /// <summary>

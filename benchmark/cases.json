@@ -409,5 +409,14 @@
       "use_bucket"
     ],
     "expect_args": {}
+  },
+  {
+    "name": "uneven_ground_still_builds",
+    "user": "这块地有点坡，你把它整平了在这盖个小屋，坐标 (-58,105,171)",
+    "world_state": "我的位置: (-57,106,170);玩家位置: (-58,106,170);相距 1m",
+    "accept_tools": [
+      "build_shelter"
+    ],
+    "expect_args": {}
   }
 ]

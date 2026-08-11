@@ -33,6 +33,9 @@ public sealed class TillSoilOrder(Point3 origin, int width, int length) : Genius
     private float _strokeElapsed;
     private int _strokesOnCell;
     private int _stuckCount;
+    private GeniusLeveling.Runner? _leveller;
+    private int? _levelledY;
+    private bool _replotted;
 
     /// <summary>Rake passes one cell may take before it is written off.</summary>
     private const int MaxStrokesPerCell = 4;
@@ -44,6 +47,26 @@ public sealed class TillSoilOrder(Point3 origin, int width, int length) : Genius
 
     protected override void OnStart(ComponentGeniusBrain brain)
     {
+        // Flatten the plot first. A terraced field is what you get when every
+        // column keeps its own height — playtest 12 produced "8格梯田式耕地"
+        // and the player quite reasonably wanted a field, not a staircase.
+        // Farmland has to be filled with soil, never stone: a cobble backfill
+        // can never be tilled.
+        var width_ = Math.Clamp(width, 1, 16);
+        var length_ = Math.Clamp(length, 1, 16);
+        if (GeniusLeveling.Columns(brain, origin.X, origin.Z, width_, length_) is { } columns)
+        {
+            var targetY = GeniusGroundLevel.ChooseTargetY(
+                columns.Select(column => column.GroundY).ToList());
+            var ops = GeniusGroundLevel.Plan(columns, targetY).ToList();
+            if (ops.Count > 0)
+            {
+                _leveller = new GeniusLeveling.Runner(ops, forFarm: true);
+            }
+
+            _levelledY = targetY;
+        }
+
         // Snap each column to its actual ground rather than trusting the y we
         // were handed. Playtest 10 called till_soil three times and got
         // "下面是空的" nine cells at a time every time, because the model was
@@ -85,6 +108,28 @@ public sealed class TillSoilOrder(Point3 origin, int width, int length) : Genius
             return "error[internal]: no inventory";
         }
 
+        if (_leveller is { Done: false } leveller)
+        {
+            leveller.Step(brain, dt);
+            if (leveller.Failure is { } levelFailure)
+            {
+                return levelFailure;
+            }
+
+            return null;
+        }
+
+        // The plot was surveyed before the earthworks; re-point it at the floor
+        // we just made, or the rake would work on the old heights.
+        if (_leveller is not null && _levelledY is { } flatY && !_replotted)
+        {
+            _replotted = true;
+            for (var i = 0; i < _plot.Count; i++)
+            {
+                _plot[i] = new Point3(_plot[i].X, flatY, _plot[i].Z);
+            }
+        }
+
         if (GeniusFarming.FindRakeSlot(inventory) is not { } rakeSlot)
         {
             return "error[missing_material]: I need a rake (木耙/铜耙/铁耙/钻石耙) to till soil — " +
@@ -101,9 +146,9 @@ public sealed class TillSoilOrder(Point3 origin, int width, int length) : Genius
         var center = new Vector3(cell.X + 0.5f, cell.Y + 0.5f, cell.Z + 0.5f);
         switch (ApproachCell(brain, center, ReachDistance, ref _stuckCount))
         {
-            case Approach.Walking:
+            case GeniusApproach.Result.Walking:
                 return null;
-            case Approach.Unreachable:
+            case GeniusApproach.Result.Unreachable:
                 _skipped.Add($"({cell.X},{cell.Y},{cell.Z}) 走不到");
                 _index++;
                 return null;
@@ -187,8 +232,9 @@ public sealed class TillSoilOrder(Point3 origin, int width, int length) : Genius
 
     private string Summary()
     {
-        var text = $"tilled {_tilled} cells into farmland around " +
-            $"({origin.X},{origin.Y},{origin.Z})" +
+        var levelled = _leveller?.Summary() is { Length: > 0 } l ? l + ";" : "";
+        var text = levelled + $"tilled {_tilled} cells into farmland around " +
+            $"({origin.X},{_levelledY ?? origin.Y},{origin.Z})" +
             (_snapped > 0
                 ? $" (snapped {_snapped} cells to the real ground height — the y you gave was off)"
                 : "");
