@@ -422,6 +422,11 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         {
             // IsSneaking IS the crouch flag in this engine (it just reads
             // CrouchFactor), which is also what stalking attacks use.
+            if (!_crouchedForFarmland)
+            {
+                Log.Information("[Genius] crouching on farmland (soil stays soil)");
+            }
+
             body.IsSneaking = true;
             _crouchedForFarmland = true;
         }

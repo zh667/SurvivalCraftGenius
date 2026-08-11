@@ -83,6 +83,16 @@ public static class GeniusArmor
             }
         }
 
+        var stopped = attackPower - Math.Max(remaining, 0f);
+        if (stopped > 0.01f)
+        {
+            // Falsifiable evidence in Game.log: the armour renders nowhere and
+            // absorbs silently, so without this a playtest cannot tell "armour
+            // worked" from "armour did nothing".
+            Log.Information(
+                $"[Genius] armor {slot} absorbed {stopped:0.##} of {attackPower:0.##}");
+        }
+
         return Math.Max(remaining, 0f);
     }
 

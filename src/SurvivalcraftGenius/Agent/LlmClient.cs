@@ -65,6 +65,7 @@ public sealed class LlmClient : IDisposable
                 var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                 if (response.IsSuccessStatusCode)
                 {
+                    LogUsage(body, useCache);
                     return ParseResponse(body);
                 }
 
@@ -110,6 +111,40 @@ public sealed class LlmClient : IDisposable
             }
 
             await Task.Delay(RetryDelay * attempt, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Records what the request actually cost, as the provider counted it.
+    /// Everything we know about our own token usage is otherwise an estimate
+    /// (there is no tokenizer in this repo), and prompt caching is invisible
+    /// without the cached-token count — a cache that silently never hits looks
+    /// exactly like one that works.
+    /// </summary>
+    private static void LogUsage(string body, bool cacheRequested)
+    {
+        try
+        {
+            if (JObject.Parse(body)["usage"] is not JObject usage)
+            {
+                return;
+            }
+
+            var prompt = (int?)usage["prompt_tokens"] ?? 0;
+            var completion = (int?)usage["completion_tokens"] ?? 0;
+            // OpenAI-style nests it; some gateways flatten it.
+            var cached = (int?)usage["prompt_tokens_details"]?["cached_tokens"]
+                ?? (int?)usage["cached_tokens"]
+                ?? (int?)usage["prompt_cache_hit_tokens"];
+            var cacheNote = cached is { } hit
+                ? $", cached {hit}"
+                : cacheRequested ? ", cached n/a" : "";
+            Engine.Log.Information(
+                $"[Genius] llm usage: in {prompt}, out {completion}{cacheNote}");
+        }
+        catch (Exception)
+        {
+            // Accounting must never break a turn.
         }
     }
 

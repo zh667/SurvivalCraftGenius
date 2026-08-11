@@ -399,6 +399,22 @@ public static class GeniusPerception
             myStatus["instinct_active"] = instinct;
         }
 
+        // Armour is worn straight out of the bag and does NOT render on the
+        // model, so without this line neither the player nor the companion has
+        // any way to tell whether it is protected — which would make the whole
+        // feature unfalsifiable in a playtest.
+        if (brain.Miner.Inventory is { } inventory)
+        {
+            myStatus["armor"] = GeniusArmor.Describe(inventory);
+        }
+
+        // Same reason: crouching on farmland is what stops the companion
+        // trampling the field it is making, and a crouch is easy to miss.
+        if (brain.Creature.ComponentBody.IsSneaking)
+        {
+            myStatus["crouching"] = true;
+        }
+
         // Underground awareness: without this the model wandered a cave for
         // minutes "looking for animals" (playtest 2 lesson) — it simply did
         // not know a surface existed above.

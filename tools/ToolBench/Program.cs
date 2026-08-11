@@ -18,6 +18,7 @@ using SurvivalcraftGenius.ToolBench;
 var samplesOverride = (int?)null;
 var filter = "";
 var budgetOnly = false;
+var dumpPath = "";
 for (var i = 0; i < args.Length; i++)
 {
     switch (args[i])
@@ -31,11 +32,19 @@ for (var i = 0; i < args.Length; i++)
         case "--budget":
             budgetOnly = true;
             break;
+        case "--dump" when i + 1 < args.Length:
+            dumpPath = args[++i];
+            break;
     }
 }
 
 if (budgetOnly)
 {
+    if (dumpPath.Length > 0)
+    {
+        PayloadBudget.Dump(ToolCatalog.CreateDefaultRegistry(), dumpPath);
+    }
+
     PayloadBudget.Report(ToolCatalog.CreateDefaultRegistry());
     return 0;
 }
