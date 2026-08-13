@@ -56,6 +56,10 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     /// </summary>
     internal GeniusPlan Plan { get; } = new();
 
+    /// <summary>Player-editable building designs; see GeniusPrefabLibrary.</summary>
+    internal GeniusPrefabLibrary Prefabs { get; private set; } =
+        new(Storage.GetSystemPath("data:/SurvivalcraftGenius/prefabs"));
+
     /// <summary>
     /// Which agent turn is running. Only used to tell "the player changed their
     /// mind" (a later turn — replace the job) from "the model fired twice
@@ -96,6 +100,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         ["UseBucketOrder"] = "取水",
         ["PlantSeedOrder"] = "播种",
         ["BuildShelterOrder"] = "盖房",
+        ["BuildPrefabOrder"] = "照图纸盖房",
     };
 
     /// <summary>Set when the companion dies; cleared by the next summon.</summary>
@@ -502,6 +507,18 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         }
         _knowledgeStore = new GeniusKnowledgeStore(
             Storage.GetSystemPath("data:/SurvivalcraftGenius/knowledge"));
+        Prefabs = new GeniusPrefabLibrary(
+            Storage.GetSystemPath("data:/SurvivalcraftGenius/prefabs"));
+        try
+        {
+            Prefabs.EnsureShipped();
+        }
+        catch (Exception exception)
+        {
+            // A read-only or missing folder must not stop the mod loading;
+            // list_prefabs will simply report there are none.
+            Log.Warning($"[Genius] prefab folder unavailable: {exception.Message}");
+        }
         _knowledgeStore.EnsureStarter();
         // Per-world conversation memory, seed-guarded because the game
         // recycles world folder names (same lesson as TravelMap's map cache).

@@ -182,8 +182,12 @@ public sealed class GeniusAgent
         - SURVEY FIRST, THEN BUILD IN ONE SHOT — never block by block. Player
           gave a coordinate → use it. Otherwise find_build_site(purpose=build or
           farm) returns somewhere genuinely flat, supported and bright; then
-          build_shelter (floor, walls, doorway, roof in one job, never floating)
-          or till_soil.
+          build_prefab / build_shelter / till_soil.
+        - PREFER A PREFAB. list_prefabs names the designs on hand; build_prefab
+          puts one down. Those are designs somebody already made look good, so
+          they come out the same every time. build_shelter generates a plain box
+          instead — use it only when nothing in the list fits, or the player
+          asked for a specific size.
         - NEVER hand-build with dozens of place_block calls — that produces a
           pile of loose blocks.
         - Moved? Re-run find_build_site; do not reuse the old site's coordinates

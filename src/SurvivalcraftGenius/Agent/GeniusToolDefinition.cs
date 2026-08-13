@@ -141,6 +141,21 @@ public static class ToolCatalog
               "material":{"type":"string","description":"Preferred block name, e.g. 木板/鹅卵石."}}}
             """));
         registry.Register(new GeniusToolDefinition(
+            "list_prefabs",
+            "Named building designs on hand, with footprints. Prefer these over build_shelter when one fits: a prefab is a design someone already made look good, and it costs one call instead of deciding the shape yourself.",
+            NoParameters));
+        registry.Register(new GeniusToolDefinition(
+            "build_prefab",
+            "Build a named design from list_prefabs at x/y/z (its lowest-north-west corner; get one from find_build_site). Survival mode checks the WHOLE bill of materials first and refuses without placing anything if short — a half-built house is worse than none. Never builds over the player's own blocks.",
+            """
+            {"type":"object","properties":{
+              "name":{"type":"string","description":"Design name from list_prefabs."},
+              "x":{"type":"integer"},
+              "y":{"type":"integer"},
+              "z":{"type":"integer"}},
+             "required":["name","x","y","z"]}
+            """));
+        registry.Register(new GeniusToolDefinition(
             "till_soil",
             "Rake a rectangle of ground into farmland. The only way to make farmland — dig_block just removes "
             + "the dirt. Levels the plot first (with soil, never stone) so the field is flat rather than "

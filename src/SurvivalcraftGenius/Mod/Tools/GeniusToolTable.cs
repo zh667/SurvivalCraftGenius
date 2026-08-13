@@ -58,6 +58,8 @@ public static class GeniusToolTable
 
             // Building.
             ["build_shelter"] = BuildTools.BuildShelter,
+            ["build_prefab"] = BuildTools.BuildPrefab,
+            ["list_prefabs"] = BuildTools.ListPrefabs,
 
             // Items.
             ["collect_items"] = ItemTools.CollectItems,
