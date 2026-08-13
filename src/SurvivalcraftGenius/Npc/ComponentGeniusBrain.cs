@@ -139,6 +139,11 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     /// <summary>Keeps chunks loaded and wildlife spawning around the NPC on far expeditions.</summary>
     public GeniusExpeditionKeeper Expedition { get; } = new();
 
+    private int _nextTaskId;
+
+    /// <summary>The running job, or null. One body, one job.</summary>
+    public GeniusOrder? CurrentOrder => _order;
+
     /// <summary>
     /// Is an identical order already running? Re-issuing one kills the first
     /// (StartOrder supersedes it) and restarts from nothing — playtest 15 lost
@@ -149,8 +154,16 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     public bool IsRunning(string signature) =>
         _order is not null && _order.Signature == signature;
 
-    /// <summary>Starts an order; a running order is cancelled with a failure result.</summary>
-    public void StartOrder(GeniusOrder order)
+    /// <summary>
+    /// Starts an order; a running order is cancelled with a failure result.
+    ///
+    /// <para><paramref name="turnId"/> is the agent turn that dispatched it,
+    /// which is what lets the caller distinguish "the player changed their
+    /// mind" from "the model fired twice in one turn". v0.11.7 refused every
+    /// duplicate, which is the wrong shape: a companion that ignores you for
+    /// five minutes because it is mining reads as broken, not busy.</para>
+    /// </summary>
+    public void StartOrder(GeniusOrder order, int turnId = 0)
     {
         ArgumentNullException.ThrowIfNull(order);
         // One body, one intent: a new order also ends follow mode, as the
@@ -158,8 +171,29 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         // resumes when the order finishes and drags the NPC back to the player.
         _followTarget = null;
         _order?.Finish("error[superseded]: superseded by a newer order");
+        order.TaskId = ++_nextTaskId;
+        order.DispatchTurn = turnId;
         _order = order;
         order.Start(this);
+    }
+
+    /// <summary>
+    /// Aborts the running job on the player's or the model's word. Returns what
+    /// to tell the model. Unlike <see cref="StopMoving"/> this is a deliberate
+    /// cancel, so it names the job that stopped.
+    /// </summary>
+    public string StopCurrentOrder()
+    {
+        if (_order is not { } order)
+        {
+            return "nothing is running — the body is free";
+        }
+
+        _order = null;
+        _followTarget = null;
+        m_componentPathfinding.Stop();
+        order.Finish("error[superseded]: stopped on request");
+        return $"stopped task #{order.TaskId} ({order.GetType().Name})";
     }
 
     public void StartFollowing(ComponentBody target)
@@ -689,10 +723,20 @@ public abstract class GeniusOrder
     /// </summary>
     public virtual string? Signature => null;
 
+    /// <summary>Handle the model can quote to task_status / task_stop.</summary>
+    public int TaskId { get; internal set; }
+
+    /// <summary>Which agent turn dispatched this. See ComponentGeniusBrain.StartOrder.</summary>
+    public int DispatchTurn { get; internal set; }
+
+    /// <summary>Game time this order started, for the "running for Ns" report.</summary>
+    public double StartedAt { get; private set; }
+
     protected abstract float TimeoutSeconds { get; }
 
     public void Start(ComponentGeniusBrain brain)
     {
+        StartedAt = brain.m_subsystemTime.GameTime;
         _deadline = brain.m_subsystemTime.GameTime + TimeoutSeconds;
         try
         {

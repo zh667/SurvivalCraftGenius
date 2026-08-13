@@ -10,8 +10,7 @@ public static class ItemTools
     public static Task<string> CollectItems(GeniusToolContext context, JObject arguments)
     {
         var order = new CollectItemsOrder();
-        context.Brain.StartOrder(order);
-        return order.Completion;
+        return context.Dispatch(order);
     }
 
     public static Task<string> TakeFromChest(GeniusToolContext context, JObject arguments)
@@ -20,16 +19,14 @@ public static class ItemTools
             GeniusToolContext.ReadPoint(arguments),
             (string?)arguments["item_name"],
             (int?)arguments["max_count"] ?? int.MaxValue);
-        context.Brain.StartOrder(order);
-        return order.Completion;
+        return context.Dispatch(order);
     }
 
     public static Task<string> PutIntoChest(GeniusToolContext context, JObject arguments)
     {
         var order = new PutIntoChestOrder(
             GeniusToolContext.ReadPoint(arguments), (string?)arguments["item_name"]);
-        context.Brain.StartOrder(order);
-        return order.Completion;
+        return context.Dispatch(order);
     }
 
     public static Task<string> GiveToPlayer(GeniusToolContext context, JObject arguments)
@@ -38,8 +35,7 @@ public static class ItemTools
             context.ComponentPlayer.ComponentBody,
             (string?)arguments["item_name"],
             (int?)arguments["max_count"] ?? int.MaxValue);
-        context.Brain.StartOrder(order);
-        return order.Completion;
+        return context.Dispatch(order);
     }
 
     public static Task<string> EquipTool(GeniusToolContext context, JObject arguments)

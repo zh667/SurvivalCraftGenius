@@ -19,11 +19,14 @@ public static class GeniusToolTable
     private static readonly Dictionary<string, GeniusToolFn> Handlers =
         new(StringComparer.Ordinal)
         {
-            // Chat + knowledge — the four that work before the companion exists.
+            // Chat, knowledge and bookkeeping — the ones that need no body.
             ["say"] = ChatTools.Say,
             ["query_recipes"] = KnowledgeTools.QueryRecipes,
             ["query_help"] = KnowledgeTools.QueryHelp,
             ["read_knowledge"] = KnowledgeTools.ReadKnowledge,
+            ["todowrite"] = PlanTools.TodoWrite,
+            ["task_status"] = PlanTools.TaskStatus,
+            ["task_stop"] = PlanTools.TaskStop,
 
             // Perception.
             ["scan_surroundings"] = PerceptionTools.ScanSurroundings,
@@ -73,7 +76,13 @@ public static class GeniusToolTable
     /// without a null check.
     /// </summary>
     public static readonly HashSet<string> WorksWithoutBrain =
-        new(StringComparer.Ordinal) { "say", "query_recipes", "query_help", "read_knowledge" };
+        new(StringComparer.Ordinal)
+        {
+            // task_status / task_stop answer honestly with no companion ("not
+            // summoned, so nothing is running") — more useful than error[not_summoned].
+            "say", "query_recipes", "query_help", "read_knowledge", "todowrite",
+            "task_status", "task_stop",
+        };
 
     static GeniusToolTable()
     {

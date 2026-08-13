@@ -9,16 +9,14 @@ public static class WorkTools
     public static Task<string> DigBlock(GeniusToolContext context, JObject arguments)
     {
         var order = new DigOrder(GeniusToolContext.ReadPoint(arguments));
-        context.Brain.StartOrder(order);
-        return order.Completion;
+        return context.Dispatch(order);
     }
 
     public static Task<string> PlaceBlock(GeniusToolContext context, JObject arguments)
     {
         var slotIndex = (int?)arguments["slot_index"] ?? -1;
         var order = new PlaceOrder(GeniusToolContext.ReadPoint(arguments), slotIndex);
-        context.Brain.StartOrder(order);
-        return order.Completion;
+        return context.Dispatch(order);
     }
 
     /// <summary>Runs the die-revive-recover-resume loop, so it lives on the component.</summary>
@@ -32,8 +30,7 @@ public static class WorkTools
         var order = new CraftOrder(
             (string?)arguments["item_name"] ?? "",
             (int?)arguments["count"] ?? 1);
-        context.Brain.StartOrder(order);
-        return order.Completion;
+        return context.Dispatch(order);
     }
 
     public static Task<string> Smelt(GeniusToolContext context, JObject arguments)
@@ -41,7 +38,6 @@ public static class WorkTools
         var order = new SmeltOrder(
             (string?)arguments["item_name"] ?? "",
             (int?)arguments["count"] ?? 1);
-        context.Brain.StartOrder(order);
-        return order.Completion;
+        return context.Dispatch(order);
     }
 }

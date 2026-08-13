@@ -54,14 +54,20 @@ public class ToolTableTests
         Assert.Same(GeniusToolTable.Resolve(canonical), GeniusToolTable.Resolve(typo));
     }
 
+    /// <summary>
+    /// Bookkeeping and knowledge answer without a body; everything that touches
+    /// the world must not. todowrite is here on purpose — a plan is worth
+    /// keeping before the companion is even summoned.
+    /// </summary>
     [Fact]
-    public void OnlyKnowledgeAndChatRunWithoutTheCompanion()
+    public void OnlyKnowledgeChatAndPlanningRunWithoutTheCompanion()
     {
         Assert.Equal(
-            new[] { "query_help", "query_recipes", "read_knowledge", "say" },
+            new[] { "query_help", "query_recipes", "read_knowledge", "say", "task_status", "task_stop", "todowrite" },
             GeniusToolTable.WorksWithoutBrain.OrderBy(name => name, StringComparer.Ordinal));
 
         Assert.False(GeniusToolTable.NeedsBrain("say"));
+        Assert.False(GeniusToolTable.NeedsBrain("todowrite"));
         Assert.False(GeniusToolTable.NeedsBrain("Read_Knowledge"));
         Assert.True(GeniusToolTable.NeedsBrain("goto"));
         Assert.True(GeniusToolTable.NeedsBrain("attack"));

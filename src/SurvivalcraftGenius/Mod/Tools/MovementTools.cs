@@ -14,8 +14,7 @@ public static class MovementTools
         var order = new GotoOrder(
             GeniusToolContext.ReadPoint(arguments),
             (bool?)arguments["dig_through"] ?? false);
-        context.Brain.StartOrder(order);
-        return order.Completion;
+        return context.Dispatch(order);
     }
 
     public static Task<string> FollowPlayer(GeniusToolContext context, JObject arguments)
@@ -33,8 +32,7 @@ public static class MovementTools
         }
 
         var order = new DescendOrder(targetY, (string?)arguments["looking_for"]);
-        context.Brain.StartOrder(order);
-        return order.Completion;
+        return context.Dispatch(order);
     }
 
     /// <summary>

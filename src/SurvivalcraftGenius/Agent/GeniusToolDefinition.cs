@@ -39,6 +39,26 @@ public static class ToolCatalog
              "required":["text"]}
             """));
         registry.Register(new GeniusToolDefinition(
+            "todowrite",
+            "Keep the plan for a multi-step job (3+ real phases). Skip it for single actions and chit-chat. Call it BEFORE the first physical step, then again after every finished step to mark that one completed and move exactly ONE to in_progress. Each call REPLACES the whole list. Never reset a completed step when resuming — that redoes finished work forever and is refused. If stuck, leave the step in_progress and add a concrete recovery step.",
+            """
+            {"type":"object","properties":{
+              "todos":{"type":"array","description":"The complete updated list.","items":{
+                "type":"object","properties":{
+                  "content":{"type":"string","description":"One phase, in the player's language."},
+                  "status":{"type":"string","enum":["pending","in_progress","completed","cancelled"]}},
+                "required":["content","status"]}}},
+             "required":["todos"]}
+            """));
+        registry.Register(new GeniusToolDefinition(
+            "task_status",
+            "What the body is doing right now, and for how long. Use this instead of re-sending a long job to find out whether it is still going — re-sending restarts it from zero.",
+            NoParameters));
+        registry.Register(new GeniusToolDefinition(
+            "task_stop",
+            "Abort the running job and free the body. For when the player changes their mind or the job is clearly not working. A new action tool already replaces the running job, so you rarely need this first.",
+            NoParameters));
+        registry.Register(new GeniusToolDefinition(
             "scan_surroundings",
             "List what is around me: block counts, positions of uncommon blocks, creatures, player position. For terrain shape and walkability use look_around.",
             NoParameters));

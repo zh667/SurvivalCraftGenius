@@ -1,6 +1,7 @@
 using Engine;
 using Game;
 using Newtonsoft.Json.Linq;
+using SurvivalcraftGenius.Agent;
 using SurvivalcraftGenius.Npc;
 
 namespace SurvivalcraftGenius.Mod.Tools;
@@ -65,6 +66,32 @@ public sealed class GeniusToolContext
     /// <summary>True when all three coordinates are present (they are optional on some tools).</summary>
     public static bool HasPoint(JObject arguments) =>
         arguments["x"] is not null && arguments["y"] is not null && arguments["z"] is not null;
+
+    /// <summary>
+    /// Dispatches a long job, replacing whatever was running.
+    ///
+    /// <para>The one case that is refused is a SECOND dispatch inside the SAME
+    /// agent turn: that means the model fired again without waiting for the
+    /// first result, which is how three houses in a row got restarted from
+    /// zero. A dispatch from a later turn is the player changing their mind,
+    /// and that always wins — v0.11.7 refused those too, and a companion that
+    /// ignores you for five minutes because it is mining reads as broken
+    /// rather than busy.</para>
+    /// </summary>
+    public Task<string> Dispatch(GeniusOrder order)
+    {
+        var turn = Player.TurnId;
+        if (Brain.CurrentOrder is { } running && running.DispatchTurn == turn && turn != 0)
+        {
+            return Task.FromResult(GeniusFailure.Format(FailureType.InvalidArgument,
+                $"I am already on task #{running.TaskId}, dispatched moments ago in this same " +
+                "reply. Wait for its result instead of starting another — a second dispatch " +
+                "would restart the work from zero. Use task_status to check, task_stop to abort"));
+        }
+
+        Brain.StartOrder(order, turn);
+        return order.Completion;
+    }
 }
 
 /// <summary>One tool's implementation. Runs on the main thread.</summary>

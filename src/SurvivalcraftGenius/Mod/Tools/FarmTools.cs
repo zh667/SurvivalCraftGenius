@@ -13,8 +13,7 @@ public static class FarmTools
             GeniusToolContext.ReadPoint(arguments),
             (int?)arguments["width"] ?? 1,
             (int?)arguments["length"] ?? 1);
-        context.Brain.StartOrder(order);
-        return order.Completion;
+        return context.Dispatch(order);
     }
 
     public static Task<string> PlantSeed(GeniusToolContext context, JObject arguments)
@@ -23,22 +22,19 @@ public static class FarmTools
             GeniusToolContext.ReadPoint(arguments),
             (string?)arguments["seed_name"] ?? "",
             (int?)arguments["count"] ?? 1);
-        context.Brain.StartOrder(order);
-        return order.Completion;
+        return context.Dispatch(order);
     }
 
     public static Task<string> Fertilize(GeniusToolContext context, JObject arguments)
     {
         var order = new FertilizeOrder(GeniusToolContext.ReadPoint(arguments));
-        context.Brain.StartOrder(order);
-        return order.Completion;
+        return context.Dispatch(order);
     }
 
     public static Task<string> UseBucket(GeniusToolContext context, JObject arguments)
     {
         var order = new UseBucketOrder(GeniusToolContext.ReadPoint(arguments));
-        context.Brain.StartOrder(order);
-        return order.Completion;
+        return context.Dispatch(order);
     }
 
     public static Task<string> HarvestCrops(GeniusToolContext context, JObject arguments)
@@ -50,7 +46,6 @@ public static class FarmTools
             center,
             (int?)arguments["radius"] ?? 8,
             (bool?)arguments["include_wild"] ?? false);
-        context.Brain.StartOrder(order);
-        return order.Completion;
+        return context.Dispatch(order);
     }
 }

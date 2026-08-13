@@ -48,6 +48,20 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     private bool _restoreAnnounced;
     private readonly Dictionary<FailureType, int> _failureCounts = [];
     private readonly LandmarkMemory _landmarks = new();
+
+    /// <summary>
+    /// The durable plan. Lives here rather than on the agent because the agent
+    /// is rebuilt on every settings change and player respawn, and losing the
+    /// plan on respawn would reintroduce the amnesia it exists to cure.
+    /// </summary>
+    internal GeniusPlan Plan { get; } = new();
+
+    /// <summary>
+    /// Which agent turn is running. Only used to tell "the player changed their
+    /// mind" (a later turn — replace the job) from "the model fired twice
+    /// without waiting" (the same turn — refuse).
+    /// </summary>
+    internal int TurnId { get; private set; }
     private bool _landmarksRestored;
     private volatile string? _turnContextCache;
     private double _nextContextUpdateTime;
@@ -292,6 +306,10 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             return;
         }
 
+        // A new turn: dispatching a long job is allowed again. Within ONE turn
+        // a second dispatch is refused, because that means the model fired
+        // twice without waiting for the first result — see GeniusToolContext.
+        TurnId++;
         _turnCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         var token = _turnCts.Token;
         var agent = _agent;
@@ -612,6 +630,9 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         {
             _landmarksRestored = true;
             _landmarks.Restore(restored.Landmarks);
+            // Same one-shot guard: the agent is rebuilt whenever settings
+            // change, and re-restoring would clobber a plan edited since load.
+            Plan.Restore(restored.Plan);
         }
 
         _agent = new GeniusAgent(
@@ -669,7 +690,8 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
 
         try
         {
-            _conversationStore.Save(_worldKey, _worldSeed, history, _landmarks.Snapshot());
+            _conversationStore.Save(
+                _worldKey, _worldSeed, history, _landmarks.Snapshot(), Plan.ToJson());
         }
         catch (Exception exception)
         {
@@ -736,7 +758,16 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             lines.Add("已知地标(可能过时): " + landmarks);
         }
 
-        return "<world_state>\n" + string.Join("\n", lines) + "\n</world_state>";
+        var state = "<world_state>\n" + string.Join("\n", lines) + "\n</world_state>";
+
+        // The plan rides in its own block, after the world state. It is what
+        // the model reads to answer "where am I in this job" without
+        // re-deriving it from the conversation — which is what it used to do,
+        // and what made an interrupted job restart from zero.
+        var plan = Plan.Describe();
+        return plan.Length == 0
+            ? state
+            : state + "\n<current_task>\n" + plan + "\n</current_task>";
     }
 
     private void OnAgentEvent(AgentEvent agentEvent)

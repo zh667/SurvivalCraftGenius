@@ -11,8 +11,11 @@ namespace SurvivalcraftGenius.Agent;
 /// The system prompt is never persisted — it evolves with the mod version and
 /// is re-prepended fresh on load. Pure .NET — no game types.
 /// </summary>
-/// <summary>What a world's memory file holds: conversation + landmark memory.</summary>
-public sealed record WorldMemory(List<ChatMessage>? Messages, List<Landmark> Landmarks)
+/// <summary>What a world's memory file holds: conversation, landmarks, plan.</summary>
+public sealed record WorldMemory(
+    List<ChatMessage>? Messages,
+    List<Landmark> Landmarks,
+    JArray? Plan = null)
 {
     public static WorldMemory Empty { get; } = new(null, []);
 }
@@ -79,7 +82,8 @@ public sealed class ConversationStore(string directory)
             }
 
             var landmarks = LandmarkMemory.FromJson(root["landmarks"] as JArray);
-            return new WorldMemory(messages.Count == 0 ? null : messages, landmarks);
+            return new WorldMemory(
+                messages.Count == 0 ? null : messages, landmarks, root["plan"] as JArray);
         }
         catch (Exception)
         {
@@ -91,7 +95,8 @@ public sealed class ConversationStore(string directory)
         string worldKey,
         int worldSeed,
         IReadOnlyList<ChatMessage> messages,
-        IReadOnlyList<Landmark>? landmarks = null)
+        IReadOnlyList<Landmark>? landmarks = null,
+        JArray? plan = null)
     {
         Directory.CreateDirectory(directory);
         var array = new JArray();
@@ -138,6 +143,14 @@ public sealed class ConversationStore(string directory)
         if (landmarks is { Count: > 0 })
         {
             root["landmarks"] = LandmarkMemory.ToJson(landmarks);
+        }
+
+        // The plan outlives the conversation on purpose: history gets trimmed
+        // and summarized, and "where am I in this job" must not be a casualty
+        // of that.
+        if (plan is { Count: > 0 })
+        {
+            root["plan"] = plan;
         }
 
         // Write-then-move so a crash mid-write can't corrupt the only copy.
