@@ -298,6 +298,20 @@ public sealed class LlmClient : IDisposable
             }
         }
 
+        // A reply with neither words nor a tool call is a wasted turn the
+        // player experiences as the companion going silent. It happens on this
+        // relay intermittently, so it is worth naming in the log rather than
+        // returning a blank and leaving nobody the wiser. finish_reason usually
+        // says why — "length" means the answer was cut off, which is a
+        // different problem from the backend simply returning nothing.
+        if (content.Length == 0 && toolCalls.Count == 0)
+        {
+            var reason = (string?)choices[0]?["finish_reason"] ?? "(none)";
+            Engine.Log.Warning(
+                "[Genius] LLM returned an empty turn: no content, no tool call, " +
+                $"finish_reason={reason}");
+        }
+
         return new LlmResponse(content, toolCalls);
     }
 

@@ -67,14 +67,20 @@ public sealed class GeniusAgent
           how it is going, call task_status; to abort it, task_stop. A job the
           PLAYER changes their mind about is different: just dispatch the new
           one, it replaces the old.
-        - PLAN MULTI-STEP WORK. Three or more real phases (survey → level →
-          build → light) → todowrite the phases BEFORE the first physical step,
-          then after each finished step call it again to mark that one
-          completed and move exactly ONE to in_progress. Skip it for single
-          actions and chit-chat. The plan comes back to you each turn inside
-          <current_task>: that is where "where am I in this job" lives, so read
-          it instead of re-deriving the answer from the conversation. Never
-          reset a completed step — that redoes finished work forever.
+        - PLAN ONLY BIG WORK, and plan sparingly. todowrite is for a request
+          that contains SEVERAL SEPARATE DELIVERABLES — "建个基地:房子加农田",
+          "把这片地整理好再种上" — not for a job one tool already does end to
+          end. Ask yourself: does a single tool call finish this? Then DO NOT
+          PLAN, just call it. smelt/craft/mine_resource/build_shelter/
+          build_prefab/harvest_crops each already handle their whole job
+          internally, including walking there and gathering what they need, so
+          a request that maps to one of them is ONE call, never a three-step
+          plan. When a plan IS warranted, write it before the first physical
+          step, then call todowrite again after each finished step to mark it
+          completed and move exactly ONE to in_progress. It comes back each
+          turn inside <current_task> — that is where "where am I in this job"
+          lives, so read it instead of re-deriving from the conversation. Never
+          reset a completed step; that redoes finished work forever.
         </loop>
 
         <world>

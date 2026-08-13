@@ -219,11 +219,12 @@
     }
   },
   {
-    "name": "hunting_tips_reads_knowledge",
-    "user": "打猎有什么技巧吗?",
+    "name": "hunting_detail_reads_knowledge",
+    "user": "乌鸦和海鸥分别在什么群系刷?我想找只鸟打",
     "accept_tools": [
       "read_knowledge",
-      "query_help"
+      "query_help",
+      "scan_surroundings"
     ]
   },
   {
@@ -360,8 +361,10 @@
     "user": "在这附近给我盖个小屋",
     "world_state": "我的位置: (-35,114,195);玩家位置: (-36,114,194);相距 1m",
     "accept_tools": [
+      "build_prefab",
       "build_shelter",
-      "find_build_site"
+      "find_build_site",
+      "list_prefabs"
     ],
     "expect_args": {}
   },
@@ -445,6 +448,52 @@
       "teleport",
       "find_blocks",
       "list_waypoints"
+    ],
+    "expect_args": {}
+  },
+  {
+    "name": "multiphase_job_gets_a_plan",
+    "user": "帮我在这附近弄个基地:先看地方,然后盖房子,再开块田",
+    "accept_tools": [
+      "todowrite",
+      "find_build_site",
+      "list_prefabs"
+    ],
+    "expect_args": {}
+  },
+  {
+    "name": "progress_question_uses_task_status",
+    "user": "房子盖得怎么样了?",
+    "world_state": "我的位置: (100,64,200);玩家位置: (102,64,201);相距 2m\n我正在执行中的任务: 盖房(后台继续,无需重下指令)",
+    "accept_tools": [
+      "task_status"
+    ],
+    "expect_args": {}
+  },
+  {
+    "name": "player_says_stop_aborts",
+    "user": "别盖了,停下来",
+    "world_state": "我的位置: (100,64,200);玩家位置: (102,64,201);相距 2m\n我正在执行中的任务: 盖房(后台继续,无需重下指令)",
+    "accept_tools": [
+      "task_stop"
+    ],
+    "expect_args": {}
+  },
+  {
+    "name": "house_prefers_a_prefab",
+    "user": "给我盖个小屋吧",
+    "accept_tools": [
+      "list_prefabs",
+      "build_prefab",
+      "find_build_site"
+    ],
+    "expect_args": {}
+  },
+  {
+    "name": "chitchat_needs_no_plan",
+    "user": "今天天气不错啊",
+    "accept_tools": [
+      "say"
     ],
     "expect_args": {}
   }
