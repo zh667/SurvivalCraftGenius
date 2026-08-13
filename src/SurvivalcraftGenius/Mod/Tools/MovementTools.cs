@@ -69,22 +69,29 @@ public static class MovementTools
             return Task.FromResult("error[invalid_argument]: give either waypoint_name or x/y/z");
         }
 
+        // The player asking for it outranks both limits. They exist to stop the
+        // MODEL treating teleport as transport and hiding pathfinding failures
+        // behind it — not to argue with a direct instruction. Playtest 16 had
+        // the player type 传送到我这里 three times, then "我说的是传送", and get
+        // refused every time; that is the tool being obstinate, not careful.
+        var byPlayerRequest = (bool?)arguments["player_asked"] ?? false;
         var here = brain.Creature.ComponentBody.Position;
         var distance = Vector3.Distance(here, destination);
-        if (distance < ComponentGeniusBrain.TeleportMinimumDistance)
+        if (!byPlayerRequest && distance < ComponentGeniusBrain.TeleportMinimumDistance)
         {
             return Task.FromResult(GeniusFailure.Format(FailureType.InvalidArgument,
                 $"that is only {distance:0} blocks away — I walk that. Teleport is for getting " +
-                "out of a hole or crossing a map, not for commuting; use goto"));
+                "out of a hole or crossing a map, not for commuting; use goto. " +
+                "(If the PLAYER asked for a teleport, pass player_asked=true and I will do it.)"));
         }
 
         var elapsed = brain.GameTime - brain.LastTeleportTime;
-        if (elapsed < ComponentGeniusBrain.TeleportCooldownSeconds)
+        if (!byPlayerRequest && elapsed < ComponentGeniusBrain.TeleportCooldownSeconds)
         {
             var wait = ComponentGeniusBrain.TeleportCooldownSeconds - elapsed;
             return Task.FromResult(GeniusFailure.Format(FailureType.NotReady,
                 $"I just teleported — it needs about {wait:0} more seconds. Walk (goto), " +
-                "or do something else meanwhile"));
+                "or do something else meanwhile. (If the PLAYER asked, pass player_asked=true.)"));
         }
 
         brain.StopMoving();

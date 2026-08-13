@@ -31,6 +31,7 @@ public class PrefabLibraryTests : IDisposable
         Library.EnsureShipped();
 
         var names = Library.Names();
+        Assert.Contains("窝棚", names);
         Assert.Contains("小屋", names);
         Assert.Contains("木屋", names);
     }
@@ -61,7 +62,7 @@ public class PrefabLibraryTests : IDisposable
             Assert.NotNull(prefab);
             Assert.Equal(0, prefab!.SkippedLines);
             // A building, not a stray block: floor, walls and a roof.
-            Assert.True(prefab.Cells.Count > 50, $"{name} has only {prefab.Cells.Count} cells");
+            Assert.True(prefab.Cells.Count > 40, $"{name} has only {prefab.Cells.Count} cells");
             Assert.True(prefab.Height >= 4, $"{name} is only {prefab.Height} tall");
         }
     }

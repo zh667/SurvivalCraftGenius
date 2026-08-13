@@ -111,7 +111,9 @@ public sealed class GeniusAgent
           dig_block+goto one cell at a time wastes the turn.
         - teleport is an EMERGENCY, not transport: 60s cooldown, refused under
           20 blocks (walk those). Use it when walled in, after goto fails
-          no_path twice, or for a far waypoint. It lands underground at any y
+          no_path twice, or for a far waypoint. BUT IF THE PLAYER ASKS TO BE
+          TELEPORTED TO, pass player_asked=true and just do it — their word
+          overrides both limits, and quoting the rules back at them is wrong. It lands underground at any y
           (rock opens a pocket), but an ore layer normally means descend_to.
           Refused beside lava and inside player-built blocks.
         - With the TravelMap mod, list_waypoints reads the player's waypoints
@@ -300,6 +302,12 @@ public sealed class GeniusAgent
     private readonly Action<AgentEvent> _onEvent;
     private readonly GeniusSettings _settings;
     private readonly Action<IReadOnlyList<ChatMessage>>? _persistHistory;
+
+    /// <summary>
+    /// Stops whatever the body is doing. Called when this side gives up waiting
+    /// on a tool, so an abandoned job cannot linger as a ghost holding the body.
+    /// </summary>
+    private readonly Action? _abandonRunningWork;
     private readonly Func<string?>? _turnContext;
     private readonly List<ChatMessage> _history = [];
     private readonly object _gate = new();
@@ -314,8 +322,10 @@ public sealed class GeniusAgent
         IReadOnlyList<ChatMessage>? restoredHistory = null,
         Action<IReadOnlyList<ChatMessage>>? persistHistory = null,
         Func<string?>? turnContext = null,
-        string? knowledgeIndex = null)
+        string? knowledgeIndex = null,
+        Action? abandonRunningWork = null)
     {
+        _abandonRunningWork = abandonRunningWork;
         _turnContext = turnContext;
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
@@ -398,6 +408,7 @@ public sealed class GeniusAgent
             var maxSteps = Math.Max(8, _settings.MaxToolSteps);
             string? lastSignature = null;
             var repeatCount = 0;
+            var nudgedForSilence = false;
             while (true)
             {
                 await CompactHistoryIfNeededAsync(cancellationToken).ConfigureAwait(false);
@@ -406,10 +417,32 @@ public sealed class GeniusAgent
                     .ConfigureAwait(false);
                 if (!response.HasToolCalls)
                 {
+                    // A turn with neither words nor a tool call ends in silence
+                    // the player reads as the companion ignoring them. It came
+                    // up six times in one playtest session, always with
+                    // finish_reason=stop, so the model simply produced nothing.
+                    // Nudge once — bounded, so a model that insists on saying
+                    // nothing cannot spin here.
+                    if (string.IsNullOrWhiteSpace(response.Content) && !nudgedForSilence)
+                    {
+                        nudgedForSilence = true;
+                        AppendAndTrim(ChatMessage.User(
+                            "(system) Your last turn was completely empty — no words and no tool "
+                            + "call, so the player heard nothing. Either call `say` to answer them "
+                            + "or call the action tool that moves the job forward. Do not reply "
+                            + "with plain text; it never reaches them."));
+                        continue;
+                    }
+
                     AppendAndTrim(ChatMessage.Assistant(response.Content));
                     if (!string.IsNullOrWhiteSpace(response.Content))
                     {
                         _onEvent(new AgentEvent(AgentEventKind.AssistantSaid, response.Content));
+                    }
+                    else
+                    {
+                        _onEvent(new AgentEvent(AgentEventKind.NeedsUser,
+                            "(模型这一回合没有任何输出——再说一句就能继续)"));
                     }
 
                     return;
@@ -538,9 +571,15 @@ public sealed class GeniusAgent
             var winner = await Task.WhenAny(work, timeout).ConfigureAwait(false);
             if (winner != work)
             {
+                // Stop the body too. Leaving it working on a job this side has
+                // already given up on produces a ghost task: it keeps the body
+                // slot occupied, nothing will ever report its result, and it
+                // refused every later dispatch until the session was abandoned.
+                _abandonRunningWork?.Invoke();
                 return cancellationToken.IsCancellationRequested
                     ? "error[superseded]: cancelled by a newer instruction"
-                    : "error[timeout]: tool timed out";
+                    : $"error[timeout]: '{call.Name}' ran past {timeoutSeconds}s so I stopped it. " +
+                      "The body is free again — retry it, or try a different approach";
             }
 
             return await work.ConfigureAwait(false);

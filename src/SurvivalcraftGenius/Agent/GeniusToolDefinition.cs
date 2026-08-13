@@ -317,10 +317,11 @@ public static class ToolCatalog
             NoParameters));
         registry.Register(new GeniusToolDefinition(
             "teleport",
-            "Emergency travel, not commuting: 60s cooldown, and refused for anything under 20 blocks away — walk those with goto. Takes a TravelMap waypoint name or coordinates; y is honoured underground (solid rock opens into a pocket), so it is the way OUT when walled in or stranded, and the way to a far waypoint. Also refused beside lava or inside player-built blocks.",
+            "Emergency travel, not commuting: 60s cooldown, refused under 20 blocks — walk those with goto. Takes a TravelMap waypoint name or coordinates; y is honoured underground (solid rock opens into a pocket), so it is the way OUT when walled in or stranded, and the way to a far waypoint. SET player_asked=true WHENEVER THE PLAYER ASKED TO BE TELEPORTED TO: their instruction overrides both limits, and refusing it is never right. Still refused beside lava or inside player-built blocks.",
             """
             {"type":"object","properties":{
               "waypoint_name":{"type":"string","description":"Waypoint name substring; takes priority over x/y/z."},
+              "player_asked":{"type":"boolean","description":"True when the PLAYER asked to be teleported to. Skips the cooldown and the 20-block minimum."},
               "x":{"type":"integer"},
               "y":{"type":"integer"},
               "z":{"type":"integer"}}}

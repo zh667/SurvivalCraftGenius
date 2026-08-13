@@ -81,17 +81,44 @@ public sealed class GeniusToolContext
     public Task<string> Dispatch(GeniusOrder order)
     {
         var turn = Player.TurnId;
-        if (Brain.CurrentOrder is { } running && running.DispatchTurn == turn && turn != 0)
+
+        // Refuse ONLY re-sending the SAME job in the same reply. That is the
+        // case that restarts work from zero.
+        //
+        // The first version refused any second dispatch in a turn, which
+        // deadlocked a whole session: an agent-side timeout left the order
+        // alive in the body, so every later tool — a different tool, a
+        // different job — was refused for the rest of the turn, and the
+        // companion could only tell the player to re-summon it. A different
+        // job replacing the running one is the normal, safe path; that is what
+        // "one body, one job" has always meant.
+        var running = Brain.CurrentOrder;
+        if (IsDuplicateDispatch(order.Signature, running?.Signature, running?.DispatchTurn ?? 0, turn))
         {
             return Task.FromResult(GeniusFailure.Format(FailureType.InvalidArgument,
-                $"I am already on task #{running.TaskId}, dispatched moments ago in this same " +
-                "reply. Wait for its result instead of starting another — a second dispatch " +
-                "would restart the work from zero. Use task_status to check, task_stop to abort"));
+                $"I am already doing exactly this (task #{running!.TaskId}), dispatched moments " +
+                "ago in this same reply. Sending it again would restart it from zero — wait for " +
+                "its result. task_status shows progress, task_stop aborts it"));
         }
 
         Brain.StartOrder(order, turn);
         return order.Completion;
     }
+
+    /// <summary>
+    /// Should this dispatch be refused? Extracted so the rule that deadlocked
+    /// playtest 16 has a test: the guard must catch the model re-sending the
+    /// SAME job in one reply, and must never block a DIFFERENT job, because
+    /// blocking those left the companion unable to do anything at all for the
+    /// rest of the turn.
+    /// </summary>
+    public static bool IsDuplicateDispatch(
+        string? newSignature, string? runningSignature, int runningTurn, int currentTurn) =>
+        newSignature is not null
+        && runningSignature is not null
+        && currentTurn != 0
+        && runningTurn == currentTurn
+        && string.Equals(newSignature, runningSignature, StringComparison.Ordinal);
 }
 
 /// <summary>One tool's implementation. Runs on the main thread.</summary>

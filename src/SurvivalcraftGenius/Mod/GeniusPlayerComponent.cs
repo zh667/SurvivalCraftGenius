@@ -664,7 +664,10 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             // Table of contents only. Read(null) lists the files with their
             // first-line hints, which is exactly what the model needs to know
             // a guide exists without spending a round trip to find out.
-            ReadKnowledgeIndex());
+            ReadKnowledgeIndex(),
+            // The agent gives up on a tool before the body does; without this
+            // the abandoned order kept the body slot and refused everything after it.
+            abandonRunningWork: () => RunOnMainThread(() => FindBrain()?.StopCurrentOrder()));
         if (restored.Messages is not null && !_restoreAnnounced)
         {
             _restoreAnnounced = true;
@@ -1008,16 +1011,20 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             return Task.FromResult($"error[invalid_argument]: unknown tool '{name}'");
         }
 
-        ComponentGeniusBrain? brain = null;
-        if (Tools.GeniusToolTable.NeedsBrain(name))
+        // Always look the companion up. "Works without a brain" means the tool
+        // TOLERATES a missing one, not that it is denied one — getting that
+        // backwards made task_status answer "not summoned" while the companion
+        // stood right there, and the model, unable to see or stop the job that
+        // was refusing its every move, deadlocked for the rest of the turn.
+        var brain = FindBrain();
+        if (brain is null && Tools.GeniusToolTable.NeedsBrain(name))
         {
-            brain = FindBrain();
-            if (brain is null)
-            {
-                return Task.FromResult(
-                    "error[not_summoned]: the companion is not summoned — ask the player to summon it first");
-            }
+            return Task.FromResult(
+                "error[not_summoned]: the companion is not summoned — ask the player to summon it first");
+        }
 
+        if (brain is not null)
+        {
             // World-scoped landmark memory rides on the player component; hand
             // the brain a reference so orders and perception can record into it.
             brain.Landmarks = _landmarks;

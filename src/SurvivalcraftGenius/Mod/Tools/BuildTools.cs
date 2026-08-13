@@ -1,4 +1,5 @@
 using Engine;
+using Game;
 using Newtonsoft.Json.Linq;
 using SurvivalcraftGenius.Agent;
 using SurvivalcraftGenius.Npc;
@@ -70,12 +71,46 @@ public static class BuildTools
             return Task.FromResult("图纸文件夹是空的——盖房子用 build_shelter");
         }
 
+        // The bill goes in the listing, not just in the refusal. Playtest 16
+        // discovered the cost by being refused seven times in a row while the
+        // whole session went into gathering; one look should be enough to pick
+        // a design you can actually afford.
+        var inventory = context.BrainOrNull?.Miner.Inventory;
         var lines = names.Select(name =>
         {
             var prefab = library.Load(name);
-            return prefab is null ? $"{name}(读不出来)" : $"{name}({prefab.Describe()})";
+            if (prefab is null)
+            {
+                return $"{name}(读不出来)";
+            }
+
+            var bill = prefab.MaterialCost().Select(entry =>
+            {
+                var blockName = BlocksManager.Blocks[Terrain.ExtractContents(entry.Key)]
+                    .GetDisplayName(context.SubsystemTerrain, entry.Key);
+                var have = inventory is null ? -1 : CountOf(inventory, entry.Key);
+                return have < 0 || have >= entry.Value
+                    ? $"{blockName}×{entry.Value}"
+                    : $"{blockName}×{entry.Value}(还差{entry.Value - have})";
+            });
+            return $"{name}({prefab.Describe()}:{string.Join("、", bill)})";
         });
-        return Task.FromResult("现有图纸:" + string.Join("、", lines) +
-            "。用 build_prefab 指定名字和左下角坐标来盖");
+        return Task.FromResult("现有图纸:" + string.Join(";", lines) +
+            "。用 build_prefab 指定名字和左下角坐标来盖;材料不够会整单拒绝,先挑盖得起的");
+    }
+
+    private static int CountOf(IInventory inventory, int value)
+    {
+        var wanted = Terrain.ExtractContents(value);
+        var total = 0;
+        for (var slot = 0; slot < inventory.SlotsCount; slot++)
+        {
+            if (Terrain.ExtractContents(inventory.GetSlotValue(slot)) == wanted)
+            {
+                total += inventory.GetSlotCount(slot);
+            }
+        }
+
+        return total;
     }
 }

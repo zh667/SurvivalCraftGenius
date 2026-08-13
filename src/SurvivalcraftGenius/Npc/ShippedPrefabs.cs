@@ -1,23 +1,86 @@
 namespace SurvivalcraftGenius.Npc;
 
 /// <summary>
-/// Prefabs shipped with the mod. They are written into the player's prefab
-/// folder on first run and can be edited freely from there — the point of
-/// moving building design out of the model is that the design becomes a file
-/// someone can make good ONCE, rather than something regenerated (and
-/// re-varied) on every request.
+/// Prefabs shipped with the mod, written into the player's prefab folder on
+/// first run and editable from there. Moving building design out of the model
+/// is the point: the design becomes a file someone can make good ONCE instead
+/// of something regenerated, and re-varied, on every request.
 ///
 /// <para>Block values: 5 鹅卵石 (floor), 21 木板 (walls and roof), 15 玻璃
-/// (windows). Doors and torches are deliberately absent — both need a data
-/// field for facing that a flat cell list gets wrong, and place_block adds
-/// them as details.</para>
+/// (windows, 木屋 only). Playtest 16 spent a whole session gathering for a
+/// single 5x5 hut, so 窝棚 exists as something affordable on night one and the
+/// glass came out of 小屋 — three window panes cost a furnace, a sand trip and
+/// a smelt, which is a poor trade for a starter shelter.</para>
+///
+/// <para>Doors and torches are deliberately absent: both need a facing data
+/// field a flat cell list gets wrong, and place_block adds them as details.</para>
 /// </summary>
 public static class ShippedPrefabs
 {
+    private const string Shack =
+        """
+        # 窝棚 — 守护灵内置图纸 / built-in prefab
+        # x,y,z,方块值   门朝 -Z,无玻璃,开局最省料
+        0,0,0,5
+        0,3,0,21
+        0,0,1,5
+        0,3,1,21
+        0,0,2,5
+        0,3,2,21
+        0,0,3,5
+        0,3,3,21
+        1,0,0,5
+        1,3,0,21
+        1,0,1,5
+        1,3,1,21
+        1,0,2,5
+        1,3,2,21
+        1,0,3,5
+        1,3,3,21
+        2,0,0,5
+        2,3,0,21
+        2,0,1,5
+        2,3,1,21
+        2,0,2,5
+        2,3,2,21
+        2,0,3,5
+        2,3,3,21
+        3,0,0,5
+        3,3,0,21
+        3,0,1,5
+        3,3,1,21
+        3,0,2,5
+        3,3,2,21
+        3,0,3,5
+        3,3,3,21
+        0,1,0,21
+        0,1,1,21
+        0,1,2,21
+        0,1,3,21
+        1,1,0,21
+        1,1,3,21
+        2,1,3,21
+        3,1,0,21
+        3,1,1,21
+        3,1,2,21
+        3,1,3,21
+        0,2,0,21
+        0,2,1,21
+        0,2,2,21
+        0,2,3,21
+        1,2,0,21
+        1,2,3,21
+        2,2,3,21
+        3,2,0,21
+        3,2,1,21
+        3,2,2,21
+        3,2,3,21
+        """;
+
     private const string SmallHut =
         """
         # 小屋 — 守护灵内置图纸 / built-in prefab
-        # x,y,z,方块值   门朝 -Z,窗户是玻璃
+        # x,y,z,方块值   门朝 -Z,无玻璃
         0,0,0,5
         0,4,0,21
         0,0,1,5
@@ -85,17 +148,17 @@ public static class ShippedPrefabs
         4,1,4,21
         0,2,0,21
         0,2,1,21
-        0,2,2,15
+        0,2,2,21
         0,2,3,21
         0,2,4,21
         1,2,0,21
         1,2,4,21
-        2,2,4,15
+        2,2,4,21
         3,2,0,21
         3,2,4,21
         4,2,0,21
         4,2,1,21
-        4,2,2,15
+        4,2,2,21
         4,2,3,21
         4,2,4,21
         0,3,0,21
@@ -119,7 +182,7 @@ public static class ShippedPrefabs
     private const string WoodenHouse =
         """
         # 木屋 — 守护灵内置图纸 / built-in prefab
-        # x,y,z,方块值   门朝 -Z,窗户是玻璃
+        # x,y,z,方块值   门朝 -Z,带玻璃窗
         0,0,0,5
         0,5,0,21
         0,0,1,5
@@ -294,6 +357,7 @@ public static class ShippedPrefabs
 
     public static readonly (string Name, string Content)[] All =
     [
+        ("窝棚", Shack),
         ("小屋", SmallHut),
         ("木屋", WoodenHouse),
     ];
