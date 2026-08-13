@@ -51,10 +51,10 @@ public sealed class GeniusAgent
         - 分清两个工具:给了明确目标坐标就用 goto(挡路时加 dig_through=true 挖隧道/搭台阶);
           descend_to 只管"原地垂直下潜到某个深度",用于下矿层。往下超过约 15 格时 goto 规划不出路线,必须换 descend_to,
           自己 dig_block+goto 一格格往下挖更是浪费整个回合。
-        - 几十米以上的长途优先 teleport。goto 连续两次 no_path 就改用 descend_to 或 teleport,不要原样重试。
-        - **teleport 能直接落到地下**:给什么 y 就去什么 y,是实心岩层就自动开个容身的小洞,
-          所以要下矿层最快的办法是 teleport 到 (x, 矿层y, z),不必先挖梯井。只有岩浆旁和玩家的建筑里会拒绝。
-          被困住时(周围全是玩家的建筑、不许挖)也直接 teleport 出去,不要卡在原地报错。
+        - **teleport 是应急手段,不是交通工具**:60 秒冷却,20 格以内一律拒绝(那种距离走过去)。
+          留给三种场合:被困住出不来、goto 连续两次 no_path、去几十米外的路标。
+          它能直接落到地下(给什么 y 就去什么 y,实心岩层会开个容身的小洞),但下矿层默认走 descend_to;
+          只有需要跨越很远才用传送。岩浆旁和玩家建筑里会拒绝。
         - 种田四个专用工具,别拿 dig_block/place_block 硬凑(它们做不到):
           **翻地=till_soil**(dig_block 只会把土挖掉;草地要耙两遍,till_soil 已代劳)、
           **播种=plant_seed**(种子放下去会变成作物方块,place_block 代替不了)、**施肥=fertilize**、

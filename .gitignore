@@ -9,3 +9,5 @@ Game.log
 Snipaste_*.png
 *.png
 *.scmod
+# Third-party mod packages dropped here for study — never ours to redistribute.
+*.netmod

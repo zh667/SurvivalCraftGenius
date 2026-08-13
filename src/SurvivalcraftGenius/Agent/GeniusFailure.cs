@@ -61,6 +61,13 @@ public enum FailureType
     /// <summary>The same call was repeated verbatim too many times.</summary>
     LoopDetected,
 
+    /// <summary>
+    /// Nothing is wrong — this ability is on cooldown. Distinct from Timeout
+    /// (which reports a failed attempt): waiting, or doing something else, is
+    /// the whole fix.
+    /// </summary>
+    NotReady,
+
     /// <summary>An optional capability (mod/knowledge folder) is absent.</summary>
     Unavailable,
 
@@ -92,6 +99,7 @@ public static class GeniusFailure
         FailureType.Superseded => "superseded",
         FailureType.Timeout => "timeout",
         FailureType.LoopDetected => "loop_detected",
+        FailureType.NotReady => "not_ready",
         FailureType.Unavailable => "unavailable",
         FailureType.Internal => "internal",
         _ => "internal",

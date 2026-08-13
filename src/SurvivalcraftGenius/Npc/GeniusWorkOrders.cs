@@ -279,7 +279,13 @@ public sealed class CraftOrder(string itemName, int count) : GeniusOrder
         {
             if (_approach is null)
             {
-                var table = FindNearestBlock<CraftingTableBlock>(brain, 32);
+                // Ask memory before sweeping the world. We already record every
+                // bench we find and inject it into the prompt each turn, yet
+                // this path still rescanned ~139,000 cells to rediscover the
+                // same one. Recheck the remembered cell — it may have been mined
+                // — and fall back to the sweep only if it is gone.
+                var table = RememberedBlock<CraftingTableBlock>(brain, "工作台")
+                    ?? FindNearestBlock<CraftingTableBlock>(brain, 32);
                 if (table is { } tableCell)
                 {
                     brain.Landmarks?.Record("工作台", tableCell.X, tableCell.Y, tableCell.Z);
@@ -375,6 +381,45 @@ public sealed class CraftOrder(string itemName, int count) : GeniusOrder
         return FindNearestBlock<TBlock>(brain, radius, verticalRadius: 2) is not null;
     }
 
+    /// <summary>
+    /// A station we already know about, rechecked against the world. Returns
+    /// null (and forgets the landmark) if the block is gone or its chunk is not
+    /// loaded, so the caller falls back to a real scan. Turns "sweep 139,000
+    /// cells" into "read one cell" for the common case of going back to the
+    /// same bench.
+    /// </summary>
+    internal static Point3? RememberedBlock<TBlock>(ComponentGeniusBrain brain, string landmarkName)
+        where TBlock : Block
+    {
+        if (brain.Landmarks is not { } landmarks)
+        {
+            return null;
+        }
+
+        var here = Terrain.ToCell(brain.Creature.ComponentBody.Position);
+        if (landmarks.Nearest(landmarkName, here.X, here.Y, here.Z) is not { } landmark)
+        {
+            return null;
+        }
+
+        var terrain = brain.SubsystemTerrain.Terrain;
+        if (!GeniusTerrainReady.HasCells(terrain, landmark.X, landmark.Z))
+        {
+            // Not loaded is not the same as not there — leave the memory alone.
+            return null;
+        }
+
+        var contents = Terrain.ExtractContents(
+            terrain.GetCellValue(landmark.X, landmark.Y, landmark.Z));
+        if (BlocksManager.Blocks[contents] is TBlock)
+        {
+            return new Point3(landmark.X, landmark.Y, landmark.Z);
+        }
+
+        landmarks.Remove(landmark.X, landmark.Y, landmark.Z);
+        return null;
+    }
+
     internal static Point3? FindNearestBlock<TBlock>(
         ComponentGeniusBrain brain,
         int radius,
@@ -453,7 +498,9 @@ public sealed class SmeltOrder(string itemName, int count) : GeniusOrder
         {
             if (_approach is null)
             {
-                var furnace = CraftOrder.FindNearestBlock<FurnaceBlock>(brain, 32);
+                // Memory first, sweep only if the remembered furnace is gone.
+                var furnace = CraftOrder.RememberedBlock<FurnaceBlock>(brain, "熔炉")
+                    ?? CraftOrder.FindNearestBlock<FurnaceBlock>(brain, 32);
                 if (furnace is { } furnaceCell)
                 {
                     brain.Landmarks?.Record("熔炉", furnaceCell.X, furnaceCell.Y, furnaceCell.Z);

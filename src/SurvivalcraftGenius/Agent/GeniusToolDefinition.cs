@@ -282,7 +282,7 @@ public static class ToolCatalog
             NoParameters));
         registry.Register(new GeniusToolDefinition(
             "teleport",
-            "Teleport to a TravelMap waypoint by name, or to coordinates. The y is honoured underground too — solid rock is opened into a pocket to stand in, so this is the fastest way down to an ore band, and the way out when walled in. Refused only beside lava or inside player-built blocks.",
+            "Emergency travel, not commuting: 60s cooldown, and refused for anything under 20 blocks away — walk those with goto. Takes a TravelMap waypoint name or coordinates; y is honoured underground (solid rock opens into a pocket), so it is the way OUT when walled in or stranded, and the way to a far waypoint. Also refused beside lava or inside player-built blocks.",
             """
             {"type":"object","properties":{
               "waypoint_name":{"type":"string","description":"Waypoint name substring; takes priority over x/y/z."},

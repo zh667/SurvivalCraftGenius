@@ -106,6 +106,23 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     /// <summary>Where to put the body back if the target area never generates.</summary>
     public Vector3? PendingTeleportReturn { get; set; }
 
+    /// <summary>
+    /// Game time of the last teleport, for the cooldown. Teleport used to be
+    /// free, unlimited, and advertised in its own description as "the fastest
+    /// way down to an ore band" — so the model reached for it instead of
+    /// walking, and every pathfinding bug stayed hidden behind it. It is meant
+    /// to be the way out of a hole, not the way to work.
+    /// </summary>
+    public double LastTeleportTime { get; set; } = double.NegativeInfinity;
+
+    /// <summary>Seconds between teleports.</summary>
+    public const double TeleportCooldownSeconds = 60.0;
+
+    /// <summary>Below this, walking is the answer — refuse and let the legs work.</summary>
+    public const float TeleportMinimumDistance = 20f;
+
+    public double GameTime => m_subsystemTime.GameTime;
+
     /// <summary>When the current hover started, for the give-up deadline.</summary>
     private double _hoverStartedAt;
 

@@ -47,6 +47,38 @@ public sealed class LandmarkMemory
         }
     }
 
+    /// <summary>
+    /// Nearest remembered landmark with this name, or null. Added because the
+    /// memory was write-only: crafting recorded where the workbench was, the
+    /// context injected it into every prompt, and then the code rescanned
+    /// ~139,000 cells to find the same bench again.
+    /// </summary>
+    public Landmark? Nearest(string name, int x, int y, int z)
+    {
+        lock (_gate)
+        {
+            Landmark? best = null;
+            var bestDistance = long.MaxValue;
+            foreach (var landmark in _landmarks)
+            {
+                if (!string.Equals(landmark.Name, name, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                long dx = landmark.X - x, dy = landmark.Y - y, dz = landmark.Z - z;
+                var distance = (dx * dx) + (dy * dy) + (dz * dz);
+                if (distance < bestDistance)
+                {
+                    best = landmark;
+                    bestDistance = distance;
+                }
+            }
+
+            return best;
+        }
+    }
+
     /// <summary>Forget a landmark that turned out to be gone (block destroyed/moved).</summary>
     public void Remove(int x, int y, int z)
     {

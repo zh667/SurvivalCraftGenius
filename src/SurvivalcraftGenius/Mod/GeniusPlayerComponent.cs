@@ -943,419 +943,39 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         "descend_to", "till_soil", "plant_seed", "build_shelter", "harvest_crops", "use_bucket",
     };
 
+    /// <summary>
+    /// Routes one tool call to its handler. This used to be a 421-line switch
+    /// that every new tool had to be threaded into; the bodies now live in
+    /// <c>Mod/Tools/</c>, one file per domain, and this only decides whether the
+    /// companion needs to exist first.
+    /// </summary>
     private Task<string> ExecuteToolOnMainThread(string name, JObject arguments)
     {
-        if (name == "say")
+        if (Tools.GeniusToolTable.Resolve(name) is not { } handler)
         {
-            var text = (string?)arguments["text"] ?? "";
-            if (text.Length > 0)
+            return Task.FromResult($"error[invalid_argument]: unknown tool '{name}'");
+        }
+
+        ComponentGeniusBrain? brain = null;
+        if (Tools.GeniusToolTable.NeedsBrain(name))
+        {
+            brain = FindBrain();
+            if (brain is null)
             {
-                AppendLog(GeniusChatRole.Genius, text);
-                m_componentPlayer.ComponentGui.DisplaySmallMessage(
-                    $"Genius: {Truncate(text, 80)}",
-                    Color.LightGreen,
-                    blinking: false,
-                    playNotificationSound: false);
-            }
-
-            return Task.FromResult("said");
-        }
-
-        // Knowledge tools work without the NPC being summoned.
-        switch (name)
-        {
-            case "query_recipes":
-                return Task.FromResult(GeniusKnowledge.QueryRecipes(
-                    m_subsystemTerrain, (string?)arguments["item_name"] ?? ""));
-            case "query_help":
-                return Task.FromResult(GeniusKnowledge.QueryHelp((string?)arguments["keyword"] ?? ""));
-            case "read_knowledge":
-                return Task.FromResult(_knowledgeStore.Read((string?)arguments["topic"]));
-        }
-
-        var brain = FindBrain();
-        if (brain is null)
-        {
-            return Task.FromResult("error[not_summoned]: the companion is not summoned — ask the player to summon it first");
-        }
-
-        // World-scoped landmark memory rides on the player component; hand the
-        // brain a reference so orders and perception can record into it.
-        brain.Landmarks = _landmarks;
-
-        switch (name)
-        {
-            case "scan_surroundings":
                 return Task.FromResult(
-                    GeniusPerception.ScanSurroundings(brain, m_componentPlayer.ComponentBody));
-            case "look_around":
-            {
-                var radius = (int?)arguments["radius"] ?? GeniusLookAround.DefaultRadius;
-                var (navWorld, _) = Npc.Nav.ScNavWorld.Capture(brain, allowDigging: false);
-                var terrain = brain.SubsystemTerrain.Terrain;
-                var forward = brain.Creature.ComponentBody.Matrix.Forward;
-                // Sun-verified compass (TravelMap lesson): east=-X, north=+Z.
-                var facing = Math.Abs(forward.X) >= Math.Abs(forward.Z)
-                    ? forward.X < 0 ? "东(x减)" : "西(x增)"
-                    : forward.Z > 0 ? "北(z增)" : "南(z减)";
-                return Task.FromResult(GeniusLookAround.Render(
-                    navWorld,
-                    Terrain.ToCell(brain.Creature.ComponentBody.Position),
-                    Terrain.ToCell(m_componentPlayer.ComponentBody.Position),
-                    radius,
-                    facing,
-                    (x, z) => GeniusTerrainReady.HasCells(terrain, x, z)));
+                    "error[not_summoned]: the companion is not summoned — ask the player to summon it first");
             }
 
-            case "get_inventory":
-                return Task.FromResult(GeniusPerception.DescribeInventory(brain));
-            case "follow_player":
-                brain.StartFollowing(m_componentPlayer.ComponentBody);
-                return Task.FromResult(
-                    "now following the player (ends when I start any new task; call follow_player again to resume)");
-            case "goto":
-            {
-                var order = new GotoOrder(
-                    ReadPoint(arguments),
-                    (bool?)arguments["dig_through"] ?? false);
-                brain.StartOrder(order);
-                return order.Completion;
-            }
-
-            case "mine_resource":
-                return RunResilientMiningAsync(
-                    (string?)arguments["resource_name"] ?? "",
-                    (int?)arguments["count"] ?? 1);
-
-            case "find_blocks":
-                return Task.FromResult(GeniusPerception.FindBlocks(
-                    brain,
-                    (string?)arguments["name"] ?? "",
-                    (int?)arguments["radius"] ?? 32));
-
-            case "descend_to":
-            {
-                if ((int?)arguments["y"] is not { } targetY)
-                {
-                    return Task.FromResult("error[invalid_argument]: give the target depth as y");
-                }
-
-                var order = new DescendOrder(targetY, (string?)arguments["looking_for"]);
-                brain.StartOrder(order);
-                return order.Completion;
-            }
-
-            case "find_build_site":
-            {
-                var siteWidth = (int?)arguments["width"] ?? 5;
-                var siteLength = (int?)arguments["length"] ?? 5;
-                var forFarm = string.Equals(
-                    (string?)arguments["purpose"], "farm", StringComparison.OrdinalIgnoreCase);
-                var searchRadius = Math.Clamp((int?)arguments["radius"] ?? 16, 2, 48);
-                var found = GeniusSiteSurvey.FindBest(
-                    brain, Math.Clamp(siteWidth, 1, 16), Math.Clamp(siteLength, 1, 16),
-                    searchRadius, forFarm);
-                return Task.FromResult(found is { } site
-                    ? $"best {siteWidth}x{siteLength} {(forFarm ? "farm" : "build")} site: " +
-                      $"({site.Origin.X},{site.GroundY},{site.Origin.Z}) — {site.Note}, " +
-                      $"光照{site.Light}. Use exactly this x/y/z"
-                    : $"error[not_found]: no {siteWidth}x{siteLength} spot within {searchRadius}m is " +
-                      (forFarm
-                          ? "flat soil in daylight — farmland needs grass/dirt ground and light>=9; " +
-                            "try a smaller plot, or move to open grassland"
-                          : "flat and solid enough to build on — try a smaller footprint or move me"));
-            }
-
-            case "build_shelter":
-            {
-                Point3? origin = arguments["x"] is not null && arguments["z"] is not null
-                    ? ReadPoint(arguments)
-                    : null;
-                var order = new BuildShelterOrder(
-                    origin,
-                    (int?)arguments["width"] ?? 5,
-                    (int?)arguments["length"] ?? 5,
-                    (int?)arguments["wall_height"] ?? 3,
-                    (string?)arguments["material"]);
-                if (brain.IsRunning(order.Signature!))
-                {
-                    return Task.FromResult(
-                        "已经在盖同一栋了,还在施工中——**别再下同样的指令**,那会把正在跑的任务顶掉、" +
-                        "从头再来(实测因此连废三栋)。等它自己返回结果就行;要换地方或换尺寸再重新调用");
-                }
-
-                brain.StartOrder(order);
-                return order.Completion;
-            }
-
-            case "till_soil":
-            {
-                var order = new TillSoilOrder(
-                    ReadPoint(arguments),
-                    (int?)arguments["width"] ?? 1,
-                    (int?)arguments["length"] ?? 1);
-                brain.StartOrder(order);
-                return order.Completion;
-            }
-
-            case "plant_seed":
-            {
-                var order = new PlantSeedOrder(
-                    ReadPoint(arguments),
-                    (string?)arguments["seed_name"] ?? "",
-                    (int?)arguments["count"] ?? 1);
-                brain.StartOrder(order);
-                return order.Completion;
-            }
-
-            case "fertilize":
-            {
-                var order = new FertilizeOrder(ReadPoint(arguments));
-                brain.StartOrder(order);
-                return order.Completion;
-            }
-
-            case "use_bucket":
-            {
-                var order = new UseBucketOrder(ReadPoint(arguments));
-                brain.StartOrder(order);
-                return order.Completion;
-            }
-
-            case "harvest_crops":
-            {
-                Point3? center = arguments["x"] is not null
-                    && arguments["y"] is not null
-                    && arguments["z"] is not null
-                        ? ReadPoint(arguments)
-                        : null;
-                var order = new HarvestCropsOrder(
-                    center,
-                    (int?)arguments["radius"] ?? 8,
-                    (bool?)arguments["include_wild"] ?? false);
-                brain.StartOrder(order);
-                return order.Completion;
-            }
-
-            case "list_waypoints":
-            {
-                var waypoints = TravelMapBridge.TryReadWaypoints(m_componentPlayer);
-                if (waypoints is null)
-                {
-                    return Task.FromResult("error[unavailable]: TravelMap mod is not installed (or has no data yet)");
-                }
-
-                if (waypoints.Count == 0)
-                {
-                    return Task.FromResult("no waypoints saved on the travel map yet");
-                }
-
-                var listed = waypoints.Select(waypoint =>
-                    $"{waypoint.Name} ({(int)waypoint.Position.X}, {(int)waypoint.Position.Y}, {(int)waypoint.Position.Z})");
-                return Task.FromResult("waypoints: " + string.Join("; ", listed));
-            }
-
-            case "teleport":
-            {
-                Vector3 destination;
-                var waypointName = (string?)arguments["waypoint_name"];
-                if (!string.IsNullOrWhiteSpace(waypointName))
-                {
-                    var waypoints = TravelMapBridge.TryReadWaypoints(m_componentPlayer);
-                    var match = waypoints?.FirstOrDefault(waypoint =>
-                        waypoint.Name.Contains(waypointName, StringComparison.OrdinalIgnoreCase));
-                    if (match is null)
-                    {
-                        return Task.FromResult($"error[not_found]: no waypoint matching '{waypointName}'");
-                    }
-
-                    destination = match.Position;
-                }
-                else if (arguments["x"] is not null && arguments["y"] is not null && arguments["z"] is not null)
-                {
-                    var point = ReadPoint(arguments);
-                    destination = new Vector3(point.X + 0.5f, point.Y, point.Z + 0.5f);
-                }
-                else
-                {
-                    return Task.FromResult("error[invalid_argument]: give either waypoint_name or x/y/z");
-                }
-
-                brain.StopMoving();
-                var destCell = Terrain.ToCell(destination);
-                var terrain = brain.SubsystemTerrain.Terrain;
-                var loaded = GeniusTerrainReady.HasCells(terrain, destCell.X, destCell.Z);
-                if (!loaded)
-                {
-                    // Blind teleport killed the NPC twice (physics runs before
-                    // terrain exists). Hover in the sky; the brain snaps to
-                    // the surface once the expedition keeper loads the chunk.
-                    brain.PendingTeleportHover = new Vector3(destCell.X + 0.5f, 150f, destCell.Z + 0.5f);
-                    brain.PendingTeleportTarget = destCell;
-                    // Somewhere real to go back to if the area never generates —
-                    // otherwise the body stays pinned in the sky forever.
-                    brain.PendingTeleportReturn = brain.Creature.ComponentBody.Position;
-                    brain.Creature.ComponentBody.Position = brain.PendingTeleportHover.Value;
-                    brain.Creature.ComponentBody.Velocity = Vector3.Zero;
-                    return Task.FromResult(
-                        $"teleporting to ({destCell.X}, {destCell.Y}, {destCell.Z}) — the area is still " +
-                        "loading; I hover safely and drop to that spot within a few seconds " +
-                        "(underground targets included). Wait a moment, then scan before acting.");
-                }
-
-                var landing = GeniusTeleportLanding.Resolve(brain, destCell);
-                if (landing.Error is { } landingError)
-                {
-                    return Task.FromResult(landingError);
-                }
-
-                destination = landing.Position;
-                brain.Creature.ComponentBody.Position = destination + new Vector3(0f, 0.5f, 0f);
-                return Task.FromResult(
-                    $"teleported to ({(int)destination.X}, {(int)destination.Y}, {(int)destination.Z})" +
-                    landing.Note);
-            }
-
-            case "dig_block":
-            {
-                var order = new DigOrder(ReadPoint(arguments));
-                brain.StartOrder(order);
-                return order.Completion;
-            }
-
-            case "place_block":
-            {
-                var slotIndex = (int?)arguments["slot_index"] ?? -1;
-                var order = new PlaceOrder(ReadPoint(arguments), slotIndex);
-                brain.StartOrder(order);
-                return order.Completion;
-            }
-
-            case "collect_items":
-            {
-                var order = new CollectItemsOrder();
-                brain.StartOrder(order);
-                return order.Completion;
-            }
-
-            case "take_from_chest":
-            {
-                var order = new TakeFromChestOrder(
-                    ReadPoint(arguments),
-                    (string?)arguments["item_name"],
-                    (int?)arguments["max_count"] ?? int.MaxValue);
-                brain.StartOrder(order);
-                return order.Completion;
-            }
-
-            case "put_into_chest":
-            {
-                var order = new PutIntoChestOrder(ReadPoint(arguments), (string?)arguments["item_name"]);
-                brain.StartOrder(order);
-                return order.Completion;
-            }
-
-            case "craft":
-            {
-                var order = new CraftOrder(
-                    (string?)arguments["item_name"] ?? "",
-                    (int?)arguments["count"] ?? 1);
-                brain.StartOrder(order);
-                return order.Completion;
-            }
-
-            case "smelt":
-            {
-                var order = new SmeltOrder(
-                    (string?)arguments["item_name"] ?? "",
-                    (int?)arguments["count"] ?? 1);
-                brain.StartOrder(order);
-                return order.Completion;
-            }
-
-            case "give_to_player":
-            {
-                var order = new GiveToPlayerOrder(
-                    m_componentPlayer.ComponentBody,
-                    (string?)arguments["item_name"],
-                    (int?)arguments["max_count"] ?? int.MaxValue);
-                brain.StartOrder(order);
-                return order.Completion;
-            }
-
-            case "equip_tool":
-            {
-                var inventory = brain.Miner.Inventory;
-                var slotIndex = (int?)arguments["slot_index"] ?? -1;
-                if (inventory is null || slotIndex < 0 || slotIndex >= inventory.SlotsCount)
-                {
-                    return Task.FromResult("error[invalid_argument]: invalid slot index");
-                }
-
-                inventory.ActiveSlotIndex = slotIndex;
-                var value = inventory.GetSlotValue(slotIndex);
-                var equippedName = value == 0
-                    ? "empty hand"
-                    : BlocksManager.Blocks[Terrain.ExtractContents(value)]
-                        .GetDisplayName(brain.SubsystemTerrain, value);
-                return Task.FromResult($"equipped: {equippedName}");
-            }
-
-            case "attack":
-            {
-                var query = (string?)arguments["target_name"] ?? "";
-                var target = FindAttackTarget(brain, query);
-                if (target is null)
-                {
-                    var nearby = NearbyCreatureNames(brain, 24f);
-                    var suggestions = SurvivalcraftGenius.Agent.NameSuggest.Clause(query, nearby);
-                    var listing = nearby.Count == 0
-                        ? "no creatures are within 24m at all — note: wildlife spawns " +
-                          "periodically (around players, and around me on expeditions); if I " +
-                          "just arrived, wait ~1 minute or move on — this spot may also simply " +
-                          "be barren"
-                        : $"nearby creatures: {string.Join(", ", nearby)}";
-                    return Task.FromResult(
-                        $"error[not_found]: no creature matching '{query}' within 24m{suggestions}; {listing}");
-                }
-
-                // Weapon preflight: the NPC charged a bison (resilience 75)
-                // bare-handed in playtest 3 and was trampled to death. Big
-                // game demands a real melee weapon; small game is fine.
-                var resilience = target.ComponentHealth.AttackResilience;
-                var bestMelee = 1f;
-                if (brain.Miner.Inventory is { } attackInventory)
-                {
-                    for (var slot = 0; slot < attackInventory.SlotsCount; slot++)
-                    {
-                        var slotValue = attackInventory.GetSlotValue(slot);
-                        if (slotValue != 0)
-                        {
-                            bestMelee = Math.Max(bestMelee, BlocksManager.Blocks[
-                                Terrain.ExtractContents(slotValue)].GetMeleePower(slotValue));
-                        }
-                    }
-                }
-
-                if (resilience >= 50f && bestMelee < 3f)
-                {
-                    return Task.FromResult(GeniusFailure.Format(FailureType.ToolTooWeak,
-                        $"{target.DisplayName} is big game (resilience {resilience:0}) and my best " +
-                        $"melee power is only {bestMelee:0.#} — charging it would take dozens of hits " +
-                        "while it tramples me (this killed me before). Craft/get a real weapon " +
-                        "(剑/砍刀, melee_power ≥3) first, or pick smaller prey"));
-                }
-
-                var sneak = arguments["sneak"]?.ToObject<bool>() ?? false;
-                var order = new AttackOrder(target, sneak);
-                brain.StartOrder(order);
-                return order.Completion;
-            }
-
-            default:
-                return Task.FromResult($"error[invalid_argument]: unknown tool '{name}'");
+            // World-scoped landmark memory rides on the player component; hand
+            // the brain a reference so orders and perception can record into it.
+            brain.Landmarks = _landmarks;
         }
+
+        var context = new Tools.GeniusToolContext(
+            this, m_componentPlayer, m_subsystemTerrain, m_subsystemBodies, _knowledgeStore, brain);
+        return handler(context, arguments);
     }
+
 
     private const string DeathMarker = "I died on the job";
 
@@ -1364,7 +984,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     /// tunnel back to the death spot, recover the dropped gear, and restart the
     /// job. Gives up after three deaths.
     /// </summary>
-    private async Task<string> RunResilientMiningAsync(string resource, int count)
+    internal async Task<string> RunResilientMiningAsync(string resource, int count)
     {
         var notes = "";
         for (var life = 0; life < 3; life++)
@@ -1465,69 +1085,6 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         return completion.Task;
     }
 
-    private List<string> NearbyCreatureNames(ComponentGeniusBrain brain, float range)
-    {
-        var names = new HashSet<string>();
-        foreach (var body in m_subsystemBodies.Bodies)
-        {
-            var creature = body.Entity.FindComponent<ComponentCreature>();
-            if (creature is null
-                || creature is ComponentPlayer
-                || creature == brain.Creature
-                || creature.ComponentHealth.Health <= 0f
-                || Vector3.Distance(body.Position, brain.Creature.ComponentBody.Position) > range)
-            {
-                continue;
-            }
-
-            names.Add(creature.DisplayName);
-        }
-
-        return [.. names];
-    }
-
-    private ComponentCreature? FindAttackTarget(ComponentGeniusBrain brain, string query)
-    {
-        if (string.IsNullOrWhiteSpace(query))
-        {
-            return null;
-        }
-
-        // Grounded first, then nearest. We only have melee, so an airborne duck
-        // is not a target, it is a 45-second wait — and playtest 14 spent two of
-        // them in a row on flying ducks while a landed bird stood nearby.
-        ComponentCreature? best = null;
-        var bestScore = float.MaxValue;
-        foreach (var body in m_subsystemBodies.Bodies)
-        {
-            var creature = body.Entity.FindComponent<ComponentCreature>();
-            if (creature is null
-                || creature is ComponentPlayer
-                || creature == brain.Creature
-                || creature.ComponentHealth.Health <= 0f
-                || !creature.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var distance = Vector3.Distance(body.Position, brain.Creature.ComponentBody.Position);
-            if (distance > 24f)
-            {
-                continue;
-            }
-
-            var airborne = !body.StandingOnValue.HasValue && body.ImmersionFactor <= 0f;
-            var score = distance + (airborne ? 1000f : 0f);
-            if (score < bestScore)
-            {
-                best = creature;
-                bestScore = score;
-            }
-        }
-
-        return best;
-    }
-
     private ComponentGeniusBrain? FindBrain()
     {
         ComponentGeniusBrain? nearest = null;
@@ -1566,6 +1123,12 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
 
         return nearest;
     }
+
+    /// <summary>Tool handlers in <c>Mod/Tools/</c> speak to the player through this.</summary>
+    internal void AppendChat(GeniusChatRole role, string text) => AppendLog(role, text);
+
+    /// <summary>Shared with the tool handlers so chat and the HUD clip alike.</summary>
+    internal static string Shorten(string text, int maxLength) => Truncate(text, maxLength);
 
     private void AppendLog(GeniusChatRole role, string text)
     {
