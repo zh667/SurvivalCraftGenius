@@ -1,153 +1,182 @@
 # Genius vs Numen 差距拷打报告
 
-> 2026-08-05,基于对两个仓库的全量代码探查。对比对象:`minecraft-numen`(numen-core,分支 1.21.1)。
-> 注意:Numen 仓库只含"内容包",Agent 循环/记忆压缩/UI/联机传输在独立的 numen-api 仓库中,
-> 本报告对比的只是它的半个身子——真实差距比下文更大。
+> **第二版,2026-08-13。** 第一版在 2026-08-05,附在本文末尾(§九)作为对照。
+> 对比对象:`minecraft-numen` @ `bd96ab69`(2026-08-12)。
+> 上一版的免责声明("只对比了半个身子")这次不成立了 —— Numen 已经把引擎并回同一个仓库,
+> `api/` 就是原来独立的 numen-api。这次是全量对全量。
 
-## TLDR
+## 零、八天之差
 
-工具数量差距约 30%(21 vs 31),工程成熟度差距约一个量级。
-Numen:590 commits / 2.5 个月、76 个 release tag、11 个 MC 版本、230 单测 + 4 GameTest + 工具选择 benchmark、
-16 值失败分类学、全局性能预算、对话持久化 + 自动摘要压缩、服务端 fake-player 联机。
-Genius:16 commits 挤在两天、约 1/3 代码(含整个 Nav/ A\*)未提交、三个版本号互相矛盾、
-零游戏侧测试、无重试无流式无持久化、主线程 10 万格级同步扫描。
+上一版之后的八天里,两边各干了什么:
 
-差距不是"再写 1 万行"能追的——是从"功能都实现了"到"系统能被信任"的距离。
+| | Numen(08-04 → 08-12) | Genius(v0.11.0 → v0.11.7) |
+|---|---|---|
+| 主线 | 出平台 | 修实机 bug |
+| 具体 | MCP 外接大脑、技能系统三级披露、战斗子系统重写(含远程)、异步任务协议、语音输入(STT)、UI 设置分屏 | prompt 缓存、身体层(抗性/护甲/蹲行/收割)、整地、建房续建、耕地保护、开渠灌溉、火把补光、搬运不丢物、任务不自相顶替 |
 
-## 一、工程纪律(最疼)
+这个对比本身就是最重要的一行:**Numen 在长能力,Genius 在还债。** 八次发布全部是修 playtest 里发现的洞,没有一次是新增能力。这不是批评 —— 洞是真的,不修就没法玩;但方向差异要看清楚。
 
-- **版本号三个互相矛盾**:csproj `0.1.0` / modinfo.json `0.7.0` / GeniusModLoader 日志 `v0.5.3`。
-  Numen:76 个 tag,conventional commits,tag 触发 CI 自动发布 Modrinth。
-- **约 1/3 代码未提交**(+1187 行,含 907 行 Nav/ A\* 重写和一半测试文件)。硬盘一坏全没。
-- **README 与实现不符**:声称"走玩家同款 ComponentMiner 逻辑",实际 Dig/Place 直接
-  `SubsystemTerrain.DestroyCell`;`smelt` 不碰真熔炉槽位,5 秒计时器模拟。
-  (注:DestroyCell 是刻意规避——引擎的 `ComponentMiner.Dig/Place` 在无 ComponentPlayer 的 NPC
-  上会 NPE;耗时/工具/耐久仍走 ComponentMiner 数据。错在文案夸大,已改 README/ROADMAP 措辞。)
-- **`teleport` 无条件无上限无成本**——违反"AI 同伴只做玩家做得到的事"的产品设定;
-  Numen 把这条写成原则且代码兜得住。
+## 一、当前体量(全部实测)
 
-## 二、架构:有代码 vs 有宪法
+| | Numen | Genius |
+|---|---|---|
+| 代码 | 90,568 行 / 649 个 java 文件 | 14,767 行 / 64 个 cs 文件 |
+| 测试 | 101 个测试文件 + GameTest(真实地形) | 33 个文件 / 215 个测试,全绿 |
+| 提交 | 1,081(2026-05-14 起,3 个月) | 82(2026-07-24 起,3 周) |
+| tag | 87 | 25 |
+| 工具 | 39 | 31 |
+| 贡献者 | 5 | 1 |
+| 覆盖面 | MC 1.20.1–26.1.2 共 11 版 × Fabric/Forge/NeoForge | SC 联机版单一 API |
 
-- Numen 有 142 行"架构宪法"(新功能 4 问准入、带日期的裁决记录),引擎/内容经 4 个注册点解耦,
-  生态已拆 5 仓库。Genius 是 889 行的 `GeniusPlayerComponent` 上帝类,ROADMAP 声称的
-  `Perception/`、`Actions/` 目录不存在。
-- **异步任务协议**:Numen 有契约(`{task_id, async:true}` 立即返回、一身体一任务、第二个派发拒绝、
-  `task_finished` 事件回报、禁轮询、中断任务从当前世界状态重解)。Genius 是 ad hoc 的
-  TaskCompletionSource + 晚报机制,精神相似但无协议。
-- **失败处理**:Numen 16 值 `FailureType` 枚举,切分"梯子内自愈"vs"踢回 LLM",配 `RecoveryLadder`
-  (不变量:只重试同一有界目标,永不扩大范围)。Genius 是 21 份自由散文 error 字符串——
-  教学式报错(did-you-mean/缺料清单/autopsy)方向对,但不是类型系统,无法统计与回归。
-- `_ = Task.Run(...)` 阅后即焚;`LastDeathPosition` 曾是 static(全进程一坑位,多 NPC 会找错坟)。
+模块划分:`api` 38.8k(引擎)/ `core` 43.7k(内容)/ `ui` 3.8k / `ai` 4.2k(LLM 传输 + 5 家 provider)。
 
-## 三、性能:重犯 SCTM 修过的错
+体量差 6 倍,人力差 5 倍,时间差 4 倍 —— **人均速度我们不输**,这一条和上一版结论一致。差距来自方向,不是来自效率。
 
-- `MineResourceOrder.FindNearestMatch` 每轮挖矿迭代主线程同步扫 ~8.8 万格且全量重扫(ROADMAP
-  自认缓存未做);`CraftOrder.FindNearestBlock` ~13.9 万格;`ScNavWorld` 规划线程读活体 Terrain。
-- Numen:全局 `SearchBudget`(所有同伴共享,每 tick 128 检查 / 2 chunk 加载封顶)、扫描按 tick 切片、
-  超时返回诚实 partial、A\* 独立线程池读冻结快照、`NavProfiler` + `/numen profile`。
-  人家把性能当子系统建,我们把它当没爆炸的隐患留着。
+## 二、结构性差距(按对实机体验的影响排序)
 
-## 四、感知:交 JSON vs 交论文
+### 1. 没有"计划"这个对象 —— 最疼,也最便宜
 
-- `scan_surroundings` 合格(紧凑 JSON、chunk 未加载诚实标注、机制优先于名字),但零测量数据支撑。
-- Numen `look_around`:带 costmap 风险膨胀的自我中心 ASCII 俯视语义网格,4 篇文献支撑
-  (VLN 文本网格 1.1%→15%、VoT 导航 +27%),动机来自真实日志测量(一次任务 38 次 inspect_block),
-  网格谓词与寻路器完全同源,感知与导航永不打架。还调研确认 Voyager/Mindcraft/GITM/JARVIS-1 均无此设计。
+Numen 有 `todowrite`:模型在动手前先写一张待办表,每次任务完成后立刻回来划掉一项、把**恰好一项**推进到 in_progress。表随存档持久化,每个用户回合还注入一条 `<current_task>`(服务端推,客户端只照抄不推断)。
 
-## 五、记忆与联机:整块缺失
+Genius 没有任何等价物。**它每一步都在从对话历史里重新推导"我现在在干嘛"。**
 
-- 对话:内存 60 条硬截断,关游戏全失忆。Numen:JSONL 按世界持久化、超长自动压缩摘要、
-  `known_blocks`(记住见过的工作台/熔炉/箱子)每轮注入。ROADMAP M4 的 seed 隔离记忆:零行代码。
-- 联机:Numen 服务端 fake ServerPlayer、动作服务端校验、每客户端自带 key。Genius:客户端直接拒绝。
-- LLM 客户端:曾无重试无退避、无流式、无 temperature/max_tokens、无 token 计量,一个 5xx 吃掉整轮。
-  Numen 连工具注册顺序都刻意固定以稳定命中 prompt cache。
+这正是"建造打猎种田样样不精通"的结构性原因:它不是笨,是没有"我在第 3 步 / 共 6 步"这个状态。做到一半被打断、被抢占、被超时,回来只能靠读历史猜,猜错就重来 —— 而重来看起来就是转圈。
 
-## 六、验证:50 个测试挡住了什么
+> 这是我认为**投入产出比最高的一项**:一个工具 + 一段持久化 + 每回合注入,大概 200 行,不改任何身体代码。
 
-- 50/50 全绿但零个测试碰游戏侧代码(11 个 Order、Brain、Perception、Instincts、ExpeditionKeeper、UI
-  全靠 Windows 手测)。Numen:230 单测 + 4 个真实地形 GameTest + 工具调用 benchmark
-  (冻结场景回放,选中率 94% / 参数合法 100%,结果进 git)。
-- 我们没有任何手段回答:"换模型/改 prompt,21 个工具还选得对吗?"
+### 2. 异步任务是个协议,不是一堆补丁
 
-### 小刀合集(代码卫生)
+Numen 的契约(写在宪法 §六 里):
 
-- `_sawToolLimit` 永远不为 true → autopsy 分支不可达(NavPlan.ToolLimited 算了没人读)
-- `NavPlan.ReachesGoal/ToolLimited/PlacesNeeded` 写了没人读
-- `EquipBestToolFor` 逐字节复制两份(DigOrder / TimedDigger)
-- 捡拾循环写三遍(Brain vacuum / MineResourceOrder / CollectItemsOrder)
-- `GeniusKnowledge.cs` 三代指南以字符串常量共存(~370 行内容当代码)
-- 超时两处不一致(order deadline 总是先赢,agent 侧 LongToolTimeouts 形同虚设)
-- `follow_player` 状态不随 StartOrder 清理 → 订单结束幽灵跟随
-- 全部 UI/prompt/报错硬编码中文,零 Lang 资源
-- 未使用成员:`ChestOrderBase.ChestPoint`、`HasActiveOrder`、`IsActive`
+- 受理即回执 —— 工具结果只有 `{task_id, async:true}`,身体后台跑,大脑当场自由
+- 一具身体一件活;`task_status` 拉现场,`task_stop` 叫停,**禁止轮询**
+- 完成走 `task_finished` 事件,不走工具结果
+- 中断后的"恢复"= 从当前世界状态重算,任务层永不做挂起/恢复簿记
 
-## 七、公平地说
+Genius v0.11.7 那个"已经在盖同一栋了,别再下同样的指令"是同一个问题的**补丁**,不是协议。模型看不到任务号、查不到进度、停不掉正在跑的活。
 
-- 人均速度不输:Numen 是一人 2.5 个月全职级 590 commits;Genius 两天 burst + 一周增量做出
-  7.3k 行、21 个全部落地的工具、能过 12 项行为测试的 A\*,仓库零 TODO/HACK 糊墙。
-- 领先项:`mine_resource` 死亡-复活-捡尸-续挖三条命(Numen 无对应物)、`GeniusExpeditionKeeper`
-  远征 chunk 保活 + 刷怪模拟、专用 `follow_player` 工具(Numen 靠反复 goto 涌现)、
-  TravelMap 反射软依赖桥接。且 SC 引擎文档/社区资源比 MC 差几个量级,地基更烂。
+**而且我们的选择可能是反的。** Numen 明确裁定用**替换式受理**而不是拒绝式:
 
-## 修复计划(按优先级)
+> 派新活直接顶掉旧活,不必先 task_stop —— 主人改主意是常态,"她在挖矿所以不理你"是最直观的一种出戏。唯一拒绝的情形是槽里那件**同一批工具调用里刚受理**的。
 
-1. **[纪律] commit + tag + 统一版本号**——907 行未提交 A\* 是全项目最好的代码,只存在于一块硬盘上。
-2. **[性能] 干掉主线程全量扫描**:mine_resource 候选缓存(弹出时复核),craft 找台同理。
-3. **[记忆] 对话持久化 + 摘要压缩**(ROADMAP"历史摘要化"自己标了):60 条硬截断 = NPC 每小时失忆。
-4. **[架构] 失败分类枚举化**,替换 21 份散文 error;同时是未来 benchmark 的地基。
-5. **[健壮] LLM 客户端重试/退避 + 最小工具选择 benchmark**(20 个冻结场景即可),否则改 prompt 全是盲改。
+我在 v0.11.7 里做的恰好是拒绝式(重复指令一律拒绝)。他们的口径更准:该拒的只是"模型在一个回合里连派两件活",而不是"主人五分钟后改主意"。**这个要改。**
 
-### 功能追赶(第二阶段,2026-08-06 起;顺序:地标记忆 → 反击 → look_around → 联机)
+### 3. 技能系统 vs 980 行硬编码字符串
 
-- [x] A. 结构化地标记忆(第五轮,Numen known_blocks 对应物):`Agent/LandmarkMemory`
-      (工作台/熔炉/箱子坐标,去重/48 上限/可失效);采集点=scan 扫到、craft/smelt 找到台、
-      开箱成败;注入=每回合临时 `<world_state>` system 消息(含双方位置,回合末移除,
-      Numen 式每请求重建,不胀历史不落盘);持久化并入每世界记忆文件(向后兼容旧文件);
-      +10 测试(89/89)
-- [x] B. 受击反击链(第六轮,MobDefense 对应物):挂 `ComponentHealth.Attacked` 事件
-      (原版生物反击同款钩子)→ GeniusInstincts 第 4 反射:12 秒交战窗、20m 脱离、
-      近战核心与 AttackOrder 同款(IsAttackHitMoment + Miner.Hit);永不还手打玩家;
-      血量 <30% 弃战交给引擎逃跑;生存本能(岩浆/溺水/着火)永远优先于反击;
-      prompt 已同步。纯游戏侧代码,Linux 无法单测,待 Windows 实机验证
-- [x] C. look_around ASCII 空间网格(第七轮):`Npc/GeniusLookAround` 俯视字符地图,
-      字形全部由寻路器同款 NavCell 谓词推导(吃 INavWorld 接口,Linux 可全量单测);
-      11 字形(@P.^vV#~D!x?)+ costmap 式危险膨胀 + 未加载列诚实标注;
-      轴向采用 SCTM 太阳实测结论(东=-X 北=+Z)写死在输出里,不再赌方向;
-      半径 4–16 参数;22 工具;+6 渲染测试(95/95);bench 加 2 个 scan/look 分流用例
-      (双双 3/3),prompt 感知分工 + "已确认目标直接行动";bench 五行曲线:
-      22.7→72.0→86.7→(加新用例回撤 77.8,系 prompt 丢限定词回归,已修)→82.7,pass@3 92.6
-- [x] D. 联机 M4(第八轮,代码完成,**必须双端 Windows 实机验证后才算落地**):
-      Numen 同款"客户端大脑/服务端身体"。协议=单一 GeniusToolPackage(ID 219,避开原版
-      0-40/56-59/250-253、SCTM 41/217、反作弊 61),自定界编码(纯 BinaryWriter,Linux 可测);
-      手动 PackageManager.RegisterPackage(游戏的 mod 包自动注册是死代码)+ try/catch 降级;
-      服务端只信 From 定身份,完成时按 (PlayerGuid,TokenId) 重绑客户端;NPC OwnerPlayerId
-      归属过滤(FindBrain 只见自己的);brain/OnEntityRemoved 客户端禁跑(实体模板全组件
-      复制到客户端并被 tick——侦察确认);mod 列表 MD5 强一致(服务器自动下发)保证两端同版本。
-      +5 编解码测试(100/100)
+Numen 的技能就是 Claude Skills 那一套,一比一:
 
-### 状态跟踪(2026-08-05 第一轮修复)
+- 系统提示词里只有 `<available_skills>` 清单(每技能一行 description)
+- `load_skill(name)` 才把正文注入对话
+- 正文可以再引用附属文件,`load_skill(name, file)` 三级披露
+- 文件在 `config/numen/skills/`,**玩家可以自己写**;mod 作者可以随 jar 附带
+- 开箱 11 篇,包含一整条通往屠龙的路线(下界 → 烈焰棒 → 末影珍珠 → 要塞 → 龙战)
 
-- [~] 1. 版本号已统一(csproj=modinfo=0.7.0,loader 日志改读程序集版本);**commit + tag 仍待做——最高优先级**
-- [~] 2. mine_resource 扫描缓存已做(一次扫描建候选表、弹出复核、走远 16 格或耗尽才重扫);
-      CraftOrder 找工作台的 13.9 万格扫描未改(每次 craft 只扫一次,非每帧热点,可后做)
-- [x] 3. 对话持久化 + 摘要(2026-08-05 第二轮):`Agent/ConversationStore`(每世界一文件、内嵌 seed
-      防串档、system prompt 不落盘、原子写、上限 80 条)+ `GeniusAgent` 摘要压缩(>60 条时压最老段、
-      保留最近 20 条、旧摘要自然折叠、失败退回硬截断、硬上限 160 兜底)+ 回合结束后台线程落盘;
-      +8 测试(61/61)。结构化地标记忆(known_blocks 对应物)仍待做
-- [x] 4. FailureType 枚举(2026-08-05 第三轮):`Agent/GeniusFailure` 18 值分类
-      (自愈/先决条件/参数/状态四组),全部 71 处失败点迁移为 `error[slug]: 教学散文`,
-      TunnelNavigator 暴露 FailureType 供 goto/craft/smelt/mine 透传真实类别
-      (no_path vs tool_too_weak vs area_not_loaded),system prompt 添加按分类对策 +
-      "同分类连败两次必须换策略",玩家组件按分类计数、会话结束落日志(喂未来 benchmark);
-      +11 测试(72/72)
-- [x] 5. HTTP 重试已做(408/429/5xx/超时/连接错误,3 次尝试 + 线性退避,+3 测试);
-      benchmark 已做(2026-08-06 第四轮):`tools/ToolBench` 控制台 + `benchmark/cases.json`
-      25 个冻结场景(craft↔smelt、无坐标先 scan、非 MC 配方陷阱、潜行狩猎、无进食工具诚实拒绝等),
-      真实 ToolCatalog + 真实 system prompt,三指标(selection/args_valid/args_match)+ pass@k,
-      结果追加 `benchmark/history.csv`(git 跟踪);无 key 优雅跳过仅校验用例;评分器 +7 测试(79/79)。
-      **待办:填 benchmark/.env 的 DeepSeek key 跑出第一行基线**
-- [x] 小刀合集:EquipBestToolFor 去重、_sawToolLimit 接通 NavPlan.ToolLimited、
-      DeathPosition 去 static(改实例 + 死前捕获 brain 引用)、StartOrder 清 follow(工具描述同步)、
-      agent 侧超时改为真 backstop(mine_resource 5400s 覆盖三条命、goto 600s)、
-      删 HasActiveOrder/ChestPoint/ExpeditionKeeper.IsActive
-- 验证:dotnet build 0 错误;dotnet test 53/53 通过(含 3 个新重试测试)
+Genius 的对应物是 `GeniusKnowledge.cs`:**980 行 C# 字符串常量**,三代指南(V062 / V082 / V083 / V084)以常量形式共存。上一版报告说它是"~370 行内容当代码",八天后变成 980 行 —— **这一项恶化了。**
+
+两个后果:
+- 改一句攻略要重新编译发版;玩家一个字也改不了
+- 按 `docs/TOKEN-COST.md` 的实测,系统提示词是最大的一块(~5,983 tok/step),而技能清单只要每篇一行
+
+技能化同时解决**可维护性**和**token 成本**这两件事,是第二高的投入产出比。
+
+### 4. 建造:一个固定户型 vs 一条 ops 指令流
+
+Genius:`build_shelter(width, length)` —— 一种形状,survey 和拒绝逻辑全写死在代码里。
+
+Numen 的 `build` 收一条有序 ops 流,后写的覆盖先写的:
+
+- 图元:`set` / `box` / `walls`(只砌立面环,不封顶底)/ `line` / `cylinder` / `sphere` / `scatter` / `set_door`
+- `roof` 给板材就铺出真正的斜屋顶(每格升半块,檐口缓、脊部陡),五种屋顶形制:悬山 / 庑殿 / 歇山 / 攒尖 / 单坡,外加 `overhang` / `ridge_block` / `eave_block` / `gable_block` / `soffit_block` / `corner_lift`(起翘)
+- **调色板**:任何 block_id 可以写成加权混合 `"stone_bricks*8, mossy_stone_bricks*2, cracked_stone_bricks"`,每格确定性抽一个 —— 描述里明说"一整面纯色是让建筑显假的头号原因"
+- 单次最多 16384 格,够一整栋;生存模式下**材料不够就整单拒绝、一格不放**
+- 设计要点不写在工具描述里,写在 `building_design` 技能里,让模型自己 load
+
+差别不在功能多少,在**决策放在哪**:Numen 把"盖成什么样"交给模型,代码只负责把格子放对;我们把两件事都塞进了 `GeniusBuildOrders.cs`(450 行)。你抱怨的"第一次盖得挺好,怎么就判定不合适了" —— 那个"判定"就是我们代码里的,模型插不上手。
+
+### 5. 远程武器:他们做了,但**不是做成工具**
+
+这一条直接回答上次那个悬而未决的问题。Numen 八天内重写了整个战斗子系统(`core/combat/`:Battlefield / Haven / Loadout / Menace / ShieldPlan / Swing / WeaponDamage,`task/combat/`:RangedShot / LootSweep),但 `attack` 工具的描述开头是这么写的:
+
+> **不问模型用什么武器** —— 那要看走到跟前时还有多远、有没有视线、还剩几支箭,全是模型在派发那一刻看不到的东西。
+
+工具只收 `entity_ids`。身体自己决定:够得着就近战,够不着就用弓/弩,会爆炸的就保持距离,还会按目标挑最强的武器(亡灵优先亡灵杀手),打完自己走过去捡掉落。
+
+**这是对的,我原本的打算是错的。** 我上次跟你说"远程武器是猎鸟唯一的出路",隐含的方案是加一个射击工具 —— 那会把"现在该射还是该砍"这个只有身体知道的判断推给模型。正确做法是:`attack` 签名不变,让 `AttackOrder` 内部在够不着时改用弓。鸟的问题因此不需要新工具,只需要身体多一种手段。
+
+### 6. 本能名册进不了提示词
+
+Numen 的 `Reflex` 接口要求每个自动机制自报一行 `describe()`,自动汇入系统提示词。竞价表:
+
+```
+MLG(10) > 换气(6) > 反击/逃跑(5) > 进食(4/3) > 脱困(2) > LLM 任务(0)
+```
+
+LLM 是**出价最低的竞价者** —— 任何本能随时可以抢走身体,完事归还。
+
+Genius 有 `GeniusInstincts.cs`(223 行,岩浆/溺水/着火/反击),但**模型不知道它们存在**。于是模型会为身体已经自动处理的事花 token 做决策,或者对身体"自己动了"感到困惑。
+
+### 7. 产品面
+
+- **MCP 外接大脑**:游戏里开个 MCP server,Claude Desktop / Cursor 直接驱动同伴,内置大脑硬性停手。这是 Numen 独有的一步,SC 生态里没有对应的接入面 —— **不建议追**。
+- **语音输入**:八天内接了 DashScope / 豆包两家 STT。
+- **UI**:`ui/` 3.8k 行,同伴名册 / 实时计划面板 / 只读角色卡 / HUD 气泡。Genius 的 UI 是 3 个对话框共 520 行。
+- **多同伴**:Numen 一个玩家可以召唤多个,点头像切换。Genius 是单个守护灵。
+
+## 三、我们领先或持平的地方(核实过的)
+
+- **token 成本是量出来的,不是估的。** `PayloadBudget` + `ToolBench --budget` 能离线吐出真实 wire payload 的分项 token。Numen 有 usage 日志(而且正确地把缓存命中排除在"新处理量"外),但没有找到离线预算工具。
+- **显式 prompt cache 断点。** 我们在请求里下 `cache_control`,并且实测 58.5% 输入命中。Numen 没有 `cache_control`,靠"工具注册顺序固定"吃隐式缓存。
+- **冻结场景基准。** `benchmark/cases.json` 45 个用例、`history.csv` 进 git、pass@k 三指标。这是"改了 prompt 到底变好还是变坏"的唯一答案,Numen 那边我没找到同类物。
+- **挖矿三条命**:死亡 → 复活 → 回去捡尸 → 续挖。Numen 无对应物。
+- **引擎源码级机制文档**:`MECHANICS-*.md` 全部是从 `~/sc-src` 反编译源码里读出来的硬事实(耕地践踏的质量阈值、鸟类起飞的判定半径、作物掉落表)。SC 没有 wiki,这些只能自己挖 —— 这是 Numen 不需要付的成本,也是我们真实的资产。
+
+## 四、我们落后但**不该追**的
+
+- 11 个 MC 版本 × 3 个加载器 —— SC 只有一个 API 版本,不适用
+- MCP 外接大脑 —— SC 侧没有消费者
+- 语音输入 —— 与"AI 笨"无关
+- 引擎/内容分仓 + 第三方生态 —— 我们没有第三方
+
+## 五、建议的下一步(排序)
+
+1. **`todowrite` + `<current_task>` 注入。** 约 200 行,不碰身体代码,直击"做到一半忘了在干嘛"。
+2. **异步任务协议化,并把 v0.11.7 的拒绝式改成替换式。** 暴露 `task_status` / `task_stop`,只拒绝"同一批工具调用里连派两件活"。
+3. **知识库技能化。** 980 行常量 → `config/守护灵技能/*.md`,系统提示词只留清单,`load_skill` 按需注入。省 token + 玩家可自己写攻略。
+4. **`attack` 内部学会用弓,签名不变。** 猎鸟不需要新工具。
+5. **本能自述进提示词。** `GeniusInstincts` 每条加一行自述,模型才知道身体会自己干什么。
+6. **建造 ops 流(大工程,可缓)。** 把"盖成什么样"从 `GeniusBuildOrders` 挪进模型。
+
+前五项加起来大约是一个 v0.12 的量,而且都不依赖 Windows 实机验证就能单测。
+
+## 六、一句话
+
+上一版说差距是"从功能都实现了到系统能被信任"。八天后这句话要改:
+
+**Numen 在把大模型接进世界的每一个接缝上都放了协议(计划、任务、技能、本能、事件),而 Genius 把这些接缝都留给了对话历史。** 我们每次 playtest 发现的"它好笨",十有八九不是模型笨,是模型手里没有一个可以放置状态的地方。
+
+---
+
+## 九、附:第一版(2026-08-05)
+
+> 基于对两个仓库的全量代码探查。当时 Numen 仓库只含"内容包",Agent 循环/记忆压缩/UI/联机传输在独立的 numen-api 仓库中。
+
+**TLDR(当时)**:工具数量差距约 30%(21 vs 31),工程成熟度差距约一个量级。
+Numen:590 commits / 2.5 个月、76 个 release tag、11 个 MC 版本、230 单测 + 4 GameTest + 工具选择 benchmark、16 值失败分类学、全局性能预算、对话持久化 + 自动摘要压缩、服务端 fake-player 联机。
+Genius:16 commits 挤在两天、约 1/3 代码未提交、三个版本号互相矛盾、零游戏侧测试、无重试无流式无持久化、主线程 10 万格级同步扫描。
+
+当时列出的六大项与后续处置:
+
+- **一、工程纪律** — 版本号三处矛盾、1/3 代码未提交、README 与实现不符、teleport 无成本。
+  → 版本号已统一;代码已全部提交并打 25 个 tag;README 措辞已改。teleport 仍无成本上限(**未做**)。
+- **二、架构:有代码 vs 有宪法** — 上帝类、无异步任务协议、失败处理是散文。
+  → `GeniusFailure` 18 值枚举已做(71 处失败点迁移);异步任务协议**仍未做**(见本版 §二.2)。
+- **三、性能** — mine_resource 每轮同步扫 8.8 万格。
+  → 候选缓存已做;`CraftOrder.FindNearestBlock` 13.9 万格**仍在**(非每帧热点)。
+- **四、感知** — 对方有带 costmap 膨胀的 ASCII 网格。
+  → `GeniusLookAround` 已做,字形全部由寻路器同款谓词推导,可全量单测。
+- **五、记忆与联机** — 60 条硬截断、关游戏失忆、联机直接拒绝。
+  → 对话持久化 + 摘要压缩已做;`LandmarkMemory` 已做;联机 M4 代码完成,**双端实机验证仍欠着**。
+- **六、验证** — 50 个测试零个碰游戏侧。
+  → 215 个测试;`ToolBench` 45 个冻结场景 + history.csv 进 git。游戏侧仍靠 Windows 手测。
+
+当时的"小刀合集"(代码卫生)已全部处理,除:`GeniusKnowledge.cs` 三代指南以字符串常量共存 —— **不但没修,还从 ~370 行涨到 980 行**(见本版 §二.3)。
