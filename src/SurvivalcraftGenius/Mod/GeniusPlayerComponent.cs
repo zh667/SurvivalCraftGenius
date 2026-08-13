@@ -622,7 +622,11 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
             _settings,
             restored.Messages,
             PersistConversation,
-            () => _turnContextCache);
+            () => _turnContextCache,
+            // Table of contents only. Read(null) lists the files with their
+            // first-line hints, which is exactly what the model needs to know
+            // a guide exists without spending a round trip to find out.
+            ReadKnowledgeIndex());
         if (restored.Messages is not null && !_restoreAnnounced)
         {
             _restoreAnnounced = true;
@@ -1122,6 +1126,27 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         }
 
         return nearest;
+    }
+
+    /// <summary>
+    /// The knowledge folder's listing, or null when it is empty/unreadable —
+    /// an absent folder must not put an error string into the system prompt.
+    /// </summary>
+    private string? ReadKnowledgeIndex()
+    {
+        try
+        {
+            var listing = _knowledgeStore.Read(null);
+            return listing.StartsWith("error[", StringComparison.Ordinal)
+                || listing.StartsWith("the knowledge folder is empty", StringComparison.Ordinal)
+                    ? null
+                    : listing;
+        }
+        catch (Exception exception)
+        {
+            Log.Warning($"[Genius] knowledge index unavailable: {exception.Message}");
+            return null;
+        }
     }
 
     /// <summary>Tool handlers in <c>Mod/Tools/</c> speak to the player through this.</summary>
