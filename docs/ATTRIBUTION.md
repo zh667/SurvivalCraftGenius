@@ -19,7 +19,10 @@
 
 | 本仓库文件 | 移植自 | 原始类型/方法 | 改动 |
 |---|---|---|---|
-| _(尚未开始)_ | | | |
+| `Npc/GeniusPrefab.cs`、`GeniusPrefabLibrary.cs` | 铁器风云 | `BuildingsManager` / `Building` | 解析改为全容错(坏行跳过并计数);坐标重定基;自底向上排序;增加材料清单;清单即目录,不再另有 XML |
+| `Npc/GeniusBallistics.cs` | 铁器风云 | `ProjectileAiming.CalculateAimPoint` | 变量命名;重力提为参数以便测试;竖直退化分支加注释。行为不变 |
+| `Npc/GeniusRanged.cs` | 工具人 | `ComponentGuardCombat.FireBow` / `UpdateBowBehavior` / `MaintainRangedDistance` | 瞄准改走弹道解算(直瞄打不到飞鸟);箭方块按 Index 取,不再每发扫 BlocksManager;失败返回分类原因 |
+| `Npc/GeniusFarmMode.cs`、`GeniusFarmKeeper.cs` | 工具人 | `ComponentGuardFarmer`(三优先级循环、0.2s 冷却、10s 超时) | 决策与引擎分离以便单测;工作复用现有 GeniusOrder(继承接近重试、耕地保护、作物规则);模式携带 LLM 设定的参数,而非玩家手动切按钮 |
 
 ## 文件头注释模板
 

@@ -187,7 +187,8 @@
     "name": "chest_without_coords_scans_first",
     "user": "把包里的圆石都放进旁边的箱子里",
     "accept_tools": [
-      "scan_surroundings"
+      "scan_surroundings",
+      "get_inventory"
     ]
   },
   {
@@ -494,6 +495,34 @@
     "user": "今天天气不错啊",
     "accept_tools": [
       "say"
+    ],
+    "expect_args": {}
+  },
+  {
+    "name": "standing_farm_uses_tend_farm",
+    "user": "以后这块地你帮我看着吧,熟了就收,空了就补种",
+    "world_state": "我的位置: (100,64,200);玩家位置: (102,64,201);相距 2m",
+    "accept_tools": [
+      "tend_farm",
+      "find_build_site",
+      "scan_surroundings"
+    ],
+    "expect_args": {}
+  },
+  {
+    "name": "one_off_harvest_is_not_standing_duty",
+    "user": "把熟了的麦子收一下",
+    "accept_tools": [
+      "harvest_crops"
+    ],
+    "expect_args": {}
+  },
+  {
+    "name": "hunt_bird_does_not_ask_for_a_weapon",
+    "user": "天上那只鸭子,想办法打下来",
+    "accept_tools": [
+      "attack",
+      "scan_surroundings"
     ],
     "expect_args": {}
   }

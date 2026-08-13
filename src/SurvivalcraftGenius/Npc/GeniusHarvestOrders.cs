@@ -164,6 +164,9 @@ public sealed class HarvestCropsOrder(Point3? center, int radius, bool includeWi
     /// Size and wildness live in per-block data layouts, so each crop decodes
     /// its own. Pumpkins have no wild flag.
     /// </summary>
+    /// <summary>Shared with the standing farm mode, which surveys the same cells.</summary>
+    public static (int Size, bool IsWild) DecodeCrop(int contents, int data) => Decode(contents, data);
+
     private static (int Size, bool IsWild) Decode(int contents, int data) => contents switch
     {
         GeniusHarvestRules.RyeContents => (RyeBlock.GetSize(data), RyeBlock.GetIsWild(data)),

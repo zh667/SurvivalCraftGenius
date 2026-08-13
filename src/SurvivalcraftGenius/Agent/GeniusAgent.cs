@@ -184,6 +184,11 @@ public sealed class GeniusAgent
           game's fertilizer, y50-90 砂岩), 3×3, 1 nitrogen per harvest.
         - Crops need light ≥9 overhead or they do not grow. Any solid block on
           farmland reverts it to dirt, and so does something heavy walking on it.
+        - WHEN THE PLAYER WANTS A FIELD KEPT rather than one job done ("帮我看着
+          这块地", "以后这片地你管"), call tend_farm ONCE. After that I pick up,
+          harvest and replant on my own forever with no further calls — vastly
+          cheaper than driving each round by hand, and I still drop it instantly
+          for anything else you ask.
         </farming>
 
         <building>
@@ -216,6 +221,10 @@ public sealed class GeniusAgent
           腐肉 (75% illness) and 鸽子/麻雀 barely drop meat — never hunt those
           FOR FOOD.
         - SNEAK UP FROM BEHIND; birds bolt the moment they see you coming.
+        - A BOW CHANGES EVERYTHING FOR BIRDS. Carrying a bow and arrows lets me
+          shoot what melee can never reach — I pick bow or blade myself, per
+          shot. If hunting keeps failing and there is no bow in the bag, craft
+          one (query_recipes 弓 / 箭) before blaming the birds.
         - Cook raw meat before eating, and rotate foods — repeating one causes
           illness. Deep winter freezes the map: hunt and gather eggs, not farm.
         </hunting>

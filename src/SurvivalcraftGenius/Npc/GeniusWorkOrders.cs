@@ -686,8 +686,25 @@ public sealed class AttackOrder(ComponentCreature target, bool sneak = false) : 
     private double _nextPathUpdateTime;
     private double _lootUntilTime;
     private float _airborneTime;
+    private int _shotsFired;
 
     protected override float TimeoutSeconds => sneak ? 120f : 60f;
+
+    /// <summary>Back off to keep the firing line — 工具人's MaintainRangedDistance.</summary>
+    private static void WalkAwayFrom(ComponentGeniusBrain brain, Vector3 threat)
+    {
+        var here = brain.Creature.ComponentBody.Position;
+        var away = here - threat;
+        if (away.LengthSquared() < 0.01f)
+        {
+            return;
+        }
+
+        brain.m_componentPathfinding.SetDestination(
+            here + (Vector3.Normalize(away) * GeniusRanged.PreferredRange),
+            1f, 1f, 0, useRandomMovements: false, ignoreHeightDifference: false,
+            raycastDestination: false, null);
+    }
 
     protected override void OnStart(ComponentGeniusBrain brain)
     {
@@ -717,14 +734,48 @@ public sealed class AttackOrder(ComponentCreature target, bool sneak = false) : 
 
             brain.VacuumNearbyPickables(4.5f);
             var loot = brain.DrainRecentPickups();
+            var how = _shotsFired > 0 ? $" (shot it {_shotsFired}x with the bow)" : "";
             return loot.Length > 0
-                ? $"defeated {target.DisplayName}; loot picked up: {loot}"
-                : $"defeated {target.DisplayName}; it dropped nothing I could reach";
+                ? $"defeated {target.DisplayName}{how}; loot picked up: {loot}"
+                : $"defeated {target.DisplayName}{how}; it dropped nothing I could reach";
         }
 
         var targetPosition = target.ComponentBody.Position;
         var myPosition = brain.Creature.ComponentBody.Position;
         var distance = Vector3.Distance(myPosition, targetPosition);
+
+        // Shoot whatever melee cannot touch. The model never asked for this and
+        // never could: range, line of sight and how many arrows are left are
+        // all invisible when the tool is dispatched, so the body decides. This
+        // is the answer to five playtests of "还是打不到鸟" — a bird in the air
+        // was a 45-second wait, and now it is a shot.
+        if (distance > StrikeRange && GeniusRanged.HasBow(brain.Miner.Inventory))
+        {
+            var shot = GeniusRanged.TryShoot(brain, target);
+            if (shot is ShotOutcome.Fired or ShotOutcome.Cooling)
+            {
+                _shotsFired += shot == ShotOutcome.Fired ? 1 : 0;
+                brain.Creature.ComponentCreatureModel.LookAtOrder =
+                    target.ComponentCreatureModel.EyePosition;
+                // Hold the firing line rather than charging into melee range.
+                if (distance < GeniusRanged.MinRange + 1f)
+                {
+                    WalkAwayFrom(brain, targetPosition);
+                }
+                else if (distance > GeniusRanged.PreferredRange + 4f)
+                {
+                    WalkTowards(brain, targetPosition, GeniusRanged.PreferredRange);
+                }
+                else
+                {
+                    brain.m_componentPathfinding.Stop();
+                }
+
+                return null;
+            }
+            // NoWeapon / BadRange / NoSolution all mean "close in instead",
+            // which is exactly what the melee path below does.
+        }
 
         // A flying bird is unreachable by melee. In sneak mode do the hunter's
         // wait INSIDE the order: back off beyond its 14m sight cone and hold —

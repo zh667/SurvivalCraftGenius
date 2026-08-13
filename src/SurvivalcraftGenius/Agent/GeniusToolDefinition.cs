@@ -112,6 +112,18 @@ public static class ToolCatalog
              "required":["y"]}
             """));
         registry.Register(new GeniusToolDefinition(
+            "tend_farm",
+            "Put me on STANDING FARM DUTY around x/y/z: from then on I pick up drops, harvest what ripens and replant bare farmland by myself, forever, with no further instruction from you. Use it whenever the player wants a field kept rather than one job done — it is far cheaper than driving each round by hand. Any other order you give still takes priority and I return to the field afterwards. Pass stop=true to end it.",
+            """
+            {"type":"object","properties":{
+              "x":{"type":"integer"},
+              "y":{"type":"integer"},
+              "z":{"type":"integer"},
+              "radius":{"type":"integer","description":"How far around the centre to work, 2-32. Default 12."},
+              "seed_name":{"type":"string","description":"What to replant with; omit to use whatever seeds I carry."},
+              "stop":{"type":"boolean","description":"True to end standing farm duty."}}}
+            """));
+        registry.Register(new GeniusToolDefinition(
             "find_build_site",
             "Best nearby spot for a building or a field: solid all the way under, no lava or water, lit, "
             + "not the player's property. Uneven ground is fine — up to 4 blocks of slope gets levelled "
@@ -282,7 +294,7 @@ public static class ToolCatalog
             """));
         registry.Register(new GeniusToolDefinition(
             "attack",
-            "Chase and melee the named creature until it dies or escapes. Cannot target the player.",
+            "Fight the named creature until it dies or escapes. I pick HOW on my own — bow when it is out of reach or in the air, melee when I can close — so do not ask for a weapon: range, line of sight and arrow count are things you cannot see when you call this. Carrying a bow and arrows is what makes flying birds huntable at all. Cannot target the player.",
             """
             {"type":"object","properties":{
               "target_name":{"type":"string","description":"Creature display name substring, e.g. wolf/狼."},

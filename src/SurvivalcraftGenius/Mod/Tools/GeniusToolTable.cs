@@ -55,6 +55,7 @@ public static class GeniusToolTable
             ["fertilize"] = FarmTools.Fertilize,
             ["use_bucket"] = FarmTools.UseBucket,
             ["harvest_crops"] = FarmTools.HarvestCrops,
+            ["tend_farm"] = FarmModeTools.TendFarm,
 
             // Building.
             ["build_shelter"] = BuildTools.BuildShelter,

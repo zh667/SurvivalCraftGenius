@@ -16,6 +16,7 @@ namespace SurvivalcraftGenius.Npc;
 public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
 {
     public SubsystemTerrain m_subsystemTerrain = null!;
+    public SubsystemProjectiles m_subsystemProjectiles = null!;
     public SubsystemTime m_subsystemTime = null!;
     public SubsystemBodies m_subsystemBodies = null!;
     public SubsystemPickables m_subsystemPickables = null!;
@@ -69,6 +70,9 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
 
     public SubsystemTerrain SubsystemTerrain => m_subsystemTerrain;
 
+    /// <summary>Arrow spawning, for the bow. Non-player creatures may use it.</summary>
+    public SubsystemProjectiles SubsystemProjectiles => m_subsystemProjectiles;
+
     public SubsystemBodies SubsystemBodies => m_subsystemBodies;
 
     public SubsystemPickables SubsystemPickables => m_subsystemPickables;
@@ -115,6 +119,12 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
     /// </summary>
     public double LastTeleportTime { get; set; } = double.NegativeInfinity;
 
+    /// <summary>Game time of the last arrow, for the draw cooldown.</summary>
+    public double LastShotTime { get; set; } = double.NegativeInfinity;
+
+    /// <summary>Shared RNG for shot spread — one per companion, not per shot.</summary>
+    public Engine.Random Random { get; } = new();
+
     /// <summary>Seconds between teleports.</summary>
     public const double TeleportCooldownSeconds = 60.0;
 
@@ -138,6 +148,9 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
 
     /// <summary>Keeps chunks loaded and wildlife spawning around the NPC on far expeditions.</summary>
     public GeniusExpeditionKeeper Expedition { get; } = new();
+
+    /// <summary>The standing farm order — free labour, lowest bidder for the body.</summary>
+    public GeniusFarmKeeper Farm { get; } = new();
 
     private int _nextTaskId;
 
@@ -281,6 +294,9 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         }
 
         UpdateCore(dt);
+        // The standing farm order fills idle time only: it checks for itself
+        // that no order and no follow is running before it takes the body.
+        Farm.Tick(this, dt);
         // Instincts run last so their movement overrides whatever the order
         // asked for this frame — the LLM is the lowest bidder for the body.
         Instincts.Tick(this, dt);
@@ -385,6 +401,7 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
         base.Load(valuesDictionary, idToEntityMap);
         OwnerPlayerId = valuesDictionary.GetValue("OwnerPlayerId", "");
         m_subsystemTerrain = Project.FindSubsystem<SubsystemTerrain>(throwOnError: true);
+        m_subsystemProjectiles = Project.FindSubsystem<SubsystemProjectiles>(throwOnError: true);
         m_subsystemTime = Project.FindSubsystem<SubsystemTime>(throwOnError: true);
         m_subsystemBodies = Project.FindSubsystem<SubsystemBodies>(throwOnError: true);
         m_subsystemPickables = Project.FindSubsystem<SubsystemPickables>(throwOnError: true);
@@ -538,6 +555,23 @@ public sealed class ComponentGeniusBrain : ComponentBehavior, IUpdateable
             body.IsSneaking = false;
             _crouchedForFarmland = false;
         }
+    }
+
+    /// <summary>Is there anything on the ground worth walking to? Used by the farm mode.</summary>
+    public bool HasPickableWithin(float range)
+    {
+        var here = m_componentCreature.ComponentBody.Position;
+        foreach (var pickable in m_subsystemPickables.Pickables)
+        {
+            if (!pickable.ToRemove
+                && !pickable.StuckMatrix.HasValue
+                && Vector3.Distance(pickable.Position, here) <= range)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public void VacuumNearbyPickables(float range = 2.6f)
