@@ -15,7 +15,9 @@
 
 ## 一、删
 
-### D1. 系统提示词里内联的攻略正文 —— 唯一一处"删了直接省钱"
+### D1. 系统提示词 —— 唯一一处"删了直接省钱",但最大的省法不是删
+
+**先澄清一件事:D2 那个 421 行的 switch 一个 token 都不花。** 它是游戏侧 C# 代码,永远不进请求。全项目**只有系统提示词和工具表这两块**是逐步重发、逐步计费的。所以 D1 和 D2 是两个完全不同的问题,别放在一起看。
 
 **证据**(`dotnet run --project tools/ToolBench -- --budget`):
 
@@ -26,7 +28,31 @@ tool schemas      13032 chars  ~  2137 tok   (31 个工具)
 = 每步实际计费                  ~ 12978 tok/步
 ```
 
-系统提示词已经涨到 **6446 tok/步**,比工具表的三倍还多。而它里面躺着大段散文攻略:
+#### D1a. 先做:提示词改用英文写 —— 省 61%,一个字的内容都不删
+
+把两边的提示词逐字符量了一遍:
+
+| | 字符数 | 中文字符 | 估算 token |
+|---|---|---|---|
+| Numen | 4,825 | 113(只在示例对话里) | **~2,288** |
+| Genius | 5,879 | **2,770(47%)** | **~6,631** |
+
+**我们的提示词只比他们长 22%,token 却是他们的 2.9 倍。**
+
+原因在 `docs/TOKEN-COST.md` 那张拟合表里:**中文 1.90 tok/字,英文散文 0.44 tok/字符 —— 差 4.3 倍。**
+我们 6,631 tok 里,**5,263 tok(79%)来自那 2,770 个汉字。**
+
+Numen 的提示词通篇英文,只在示例对话里留了几句中文,然后用一行指令把语言问题解决掉:
+
+> Your text is spoken aloud to the owner — **reply in the owner's language**, one short natural paragraph of plain spoken prose.
+
+**做法**:提示词正文译成英文,保留"用玩家的语言回复"这一行;SC 的方块/物品名(耕地、硝石、油菜)保持中文原名不译 —— 那些要和游戏里的显示名对得上。
+**预计**:6,631 → 约 2,600 tok,**省 ~4,000 tok/步,降 61%**,而**内容一个字都没少**。
+**为什么比删内容优先**:删内容会改变行为(模型可能因此不知道某条机制),翻译不会。风险低一个量级,收益反而大一倍。
+
+#### D1b. 再做:删掉与知识文件重复的攻略正文
+
+提示词里躺着大段散文攻略:
 
 - `GeniusAgent.cs:94` 挖矿常识(工具只影响速度不影响掉落……)
 - `GeniusAgent.cs:116` 食物常识(只打食草兽和鸵鸟/食火鸡/鸭/乌鸦/海鸥……)
@@ -34,17 +60,52 @@ tool schemas      13032 chars  ~  2137 tok   (31 个工具)
 
 **这些内容 `read_knowledge` 的知识文件里已经有一份了。** 提示词里再抄一遍,等于每一步都为同一段知识付费。
 
-**做法**:提示词里每个领域只留一行"该查哪个文件 + 一句最容易踩的坑",正文全部留给 `read_knowledge`。
-**预计**:省 2000–3000 tok/步。按盖一间房 40 步算,opus 一次省 ¥1.5–2.3。
-**风险**:模型可能不去查。这正是 `benchmark/cases.json` 存在的意义 —— 删之前先跑一遍基线,删之后再跑,选中率掉了就说明删过头。**不许盲删。**
+Numen 在这件事上有一条写进代码注释的原则,值得整段抄:
 
-### D2. `ExecuteToolOnMainThread` 的 421 行 / 30 分支巨型 switch
+> Deliberately keeps the per-tool how-to **OUT** of here (**it rots**) — that lives in each tool's description, which rides on every request. The one exception is a single routing hint the schemas structurally can't give: which tool to START with for crafting/smelting (**the tool-call benchmark regressed when this was removed**).
+
+两个点:
+1. **每个工具怎么用,写在那个工具的 description 里,不写在提示词里** —— 理由是"it rots":提示词里的用法说明会和工具实现脱节,而 description 就贴在工具旁边。
+2. 他们**破例保留了一条**路由提示(合成/熔炼要先 `lookup_recipe`),理由是**删掉后 benchmark 掉分了**。破例有证据,不是拍脑袋。
+
+**做法**:每个领域只留一行"该查哪个文件 + 一句最容易踩的坑",正文留给 `read_knowledge`;真正属于单个工具的用法,挪进那个工具的 description。
+**预计**:再省 800–1,500 tok/步。
+**风险**:模型可能不去查。**删之前先跑一遍 `ToolBench` 存基线,删之后再跑;选中率掉了就是删过头。** 这正是 Numen 破例那条的做法。
+
+#### D1c. 顺带抄:提示词本身是可测试的产物
+
+Numen 把提示词从 agent 循环里抽出来单独成类,注释写明理由:
+
+> extracted from the client agent loop so it is a first-class, testable artifact: the offline tool-call benchmark composes **the exact same system prompt** the live loop sends, so a prompt edit and its measured effect travel together **instead of the benchmark drifting against a copy**.
+
+我们的 `ToolBench` 已经在用真实的 `GeniusAgent.DefaultSystemPrompt`,这条**我们本来就是对的** —— 记下来,是为了在 D1a/D1b 改动时别把它改坏。
+
+### D2. `ExecuteToolOnMainThread` 的 421 行 / 30 分支巨型 switch(0 token,但是纯负债)
 
 `GeniusPlayerComponent.cs:946–1367`。整个类 **1594 行** —— 第一版报告记录它是 889 行,**八天涨了 79%**。
 
-不是洁癖问题:每加一个工具就往这个类里再塞一段,而下面要加的 `todowrite`、`task_status`、`task_stop` 又是三段。现在拆,成本是一次;再拖三个版本,拆的成本是三倍。
+**再强调一次:这里省不出一个 token。** 它是维护成本问题:每加一个工具就往这个类里再塞一段,而下面要加的 `todowrite`、`task_status`、`task_stop` 又是三段。现在拆一次,拖三个版本就是三倍。
 
-**做法**:按域拆成处理器表(perception / work / farm / build / item / meta),`GeniusPlayerComponent` 只留路由。纯机械重构,215 个测试是安全网。
+**Numen 根本没有这个 switch。** 他们的工具是一个接口 + 一张表:
+
+```java
+public interface NumenTool extends IToolSpec {
+    // name() / description() / parameterSchema() 继承自 IToolSpec
+    default void invoke(ToolCall call) { ServerToolTransport.ship(call); }   // 默认:发往服务端身体
+    default void onServerCall(String id, JsonObject args, NumenPlayer body, Consumer<String> reply) { … }
+}
+```
+
+每个工具是一个独立的类文件(39 个工具 = 39 个文件,按域分目录 perception/work/inventory/interact/locate/agent),`ToolRegistry.register(tool)` 塞进一张 `name → tool` 的 map,**派发就是一次 map 查找,没有 switch**。
+
+绝大多数工具什么都不覆写:默认的 `invoke` 自动把调用运到服务端身体上,工具只实现 `onServerCall`。少数不走身体的(纯客户端的 `todowrite`、自带协议的 MCP 工具)才覆写 `invoke`。**引擎对"工具怎么干活"保持全盲。**
+
+两个细节值得一并抄:
+
+- **注册时校验工具名形状**(`[a-zA-Z0-9_-]{1,64}`),非法就当场抛异常。理由写在注释里:工具清单每轮都随请求发出去,**一个非法名字换来的是整轮 400**,而不是"这个工具用不了"—— 所以宁可在初始化那一刻炸掉。
+- **`resolve()` 做大小写兜底**:模型把 `move_to` 写成 `Move_to` 是最常见的笔误,一次 `toLowerCase` 比较就能全接住,而不是让整轮崩掉。
+
+**做法**:照这个形状拆 —— 定义一个 `IGeniusToolHandler`(名字 + 执行),每个工具一个类按域分目录,`GeniusPlayerComponent` 只留一张表和路由。顺带加上名字校验和大小写兜底。纯机械重构,215 个测试是安全网。
 
 ### D3. `teleport` 的无代价 —— 删的是能力,不是代码
 
@@ -169,14 +230,17 @@ Numen 的 `build` 收一条有序 ops 流(`set`/`box`/`walls`/`line`/`cylinder`/
 | 1 | A1 `todowrite` + `<current_task>` | 增 | ~200 行 | ✅ |
 | 2 | C1 改替换式 + A2 task_status/stop | 改+增 | ~150 行 | ✅ |
 | 3 | C2 `attack` 学会用弓 | 改 | ~120 行 | 部分(需实机) |
-| 4 | D1 提示词瘦身 + C3 知识索引 + C4 本能自述 | 删+改 | ~80 行 | ✅ bench 把关 |
-| 5 | C5 craft 查地标 | 改 | 3 行 | ✅ |
-| 6 | D2 拆 1594 行上帝类 | 删 | 纯重构 | ✅ 215 测试兜底 |
-| 7 | D3 teleport 加代价 | 删 | ~40 行 | ✅ |
-| 8 | A3 建造 ops 流(设计 + 数据结构) | 增 | ~250 行 | ✅ |
-| 9 | D4 知识常量挪嵌入资源 | 删 | ~100 行 | ✅ |
+| 4 | **D1a 提示词改英文** | 删 | 翻译,0 新逻辑 | ✅ bench 把关 |
+| 5 | D1b 删重复正文 + C3 知识索引 + C4 本能自述 | 删+改 | ~80 行 | ✅ bench 把关 |
+| 6 | C5 craft 查地标 | 改 | 3 行 | ✅ |
+| 7 | D2 拆 1594 行上帝类 | 删 | 纯重构 | ✅ 215 测试兜底 |
+| 8 | D3 teleport 加代价 | 删 | ~40 行 | ✅ |
+| 9 | A3 建造 ops 流(设计 + 数据结构) | 增 | ~250 行 | ✅ |
+| 10 | D4 知识常量挪嵌入资源 | 删 | ~100 行 | ✅ |
 
-**1–5 是本版的主体**,直接对着你 playtest 11–15 里反复出现的三件事(转圈、打不到鸟、任务自相顶替)。6–9 是还债,可以往后放,但 D2 每拖一版成本都在涨。
+**1–6 是本版的主体**,直接对着你 playtest 11–15 里反复出现的三件事(转圈、打不到鸟、任务自相顶替),外加一次 61% 的成本下降。7–10 是还债,可以往后放,但 D2 每拖一版成本都在涨。
+
+**省钱那一块单独看**:D1a + D1b 合计把每步固定开销从 12,978 tok 降到约 8,500 tok(含删不掉的 4,395 中转站基线)。按盖一间房 40 步算,opus 一次从 ¥3.98 降到约 ¥1.5。
 
 ## 五、两条纪律
 
