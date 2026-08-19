@@ -7,6 +7,9 @@ public enum GeniusToolMessageKind : byte
 
     /// <summary>server → client: the tool's result string.</summary>
     Result = 1,
+
+    /// <summary>server → client: a background job finished (task_finished).</summary>
+    Event = 2,
 }
 
 public sealed record GeniusToolMessage(
@@ -41,7 +44,7 @@ public static class GeniusToolCodec
     {
         ArgumentNullException.ThrowIfNull(reader);
         var kind = reader.ReadByte();
-        if (kind > (byte)GeniusToolMessageKind.Result)
+        if (kind > (byte)GeniusToolMessageKind.Event)
         {
             throw new InvalidDataException($"unknown GeniusToolMessage kind {kind}");
         }

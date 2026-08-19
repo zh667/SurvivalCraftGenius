@@ -20,8 +20,8 @@ public static class MovementTools
     public static Task<string> FollowPlayer(GeniusToolContext context, JObject arguments)
     {
         context.Brain.StartFollowing(context.ComponentPlayer.ComponentBody);
-        return Task.FromResult(
-            "now following the player (ends when I start any new task; call follow_player again to resume)");
+        return Task.FromResult(GeniusTaskProtocol.Accept(0, "follow_player", standing: true) +
+            " Ends when any new body job starts.");
     }
 
     public static Task<string> DescendTo(GeniusToolContext context, JObject arguments)

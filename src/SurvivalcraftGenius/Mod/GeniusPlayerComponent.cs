@@ -78,6 +78,10 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     private GeniusChatDialog? _dialog;
     private CancellationTokenSource? _turnCts;
     private string? _pendingMessage;
+    private string? _pendingEvent;
+    private Guid _netPeerGuid;
+    private Guid _netPeerToken;
+    private bool _hasNetPeer;
     private LabelWidget? _statusHud;
     private double _nextStatusUpdateTime;
 
@@ -294,26 +298,29 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     }
 
     /// <summary>
-    /// Starts a turn now, or — if one is running — cancels it and queues this
-    /// message to run as soon as the old turn unwinds (M2: interruption).
+    /// Starts a turn now. A player message cancels a running turn (the body
+    /// keeps working). A task_finished event waits for the current turn to
+    /// unwind so it cannot abort the reply that just dispatched the replacement.
     /// </summary>
-    private void StartOrQueueTurn(string text)
+    private void StartOrQueueTurn(string text, bool fromPlayer = true)
     {
         _needsUserSince = double.NegativeInfinity;
         if (!_agent!.TryBeginTurn())
         {
-            // Free the LLM loop but keep the running order working in the
-            // background — a status question must not kill a mining trip. The
-            // new turn can supersede the order by issuing a new action tool.
-            _pendingMessage = text;
-            _turnCts?.Cancel();
-            AppendLog(GeniusChatRole.Info, "已切到新指令(正在执行的动作会在后台继续)…");
+            if (fromPlayer)
+            {
+                _pendingMessage = text;
+                _turnCts?.Cancel();
+                AppendLog(GeniusChatRole.Info, "已切到新指令(正在执行的动作会在后台继续)…");
+            }
+            else
+            {
+                _pendingEvent = text;
+            }
+
             return;
         }
 
-        // A new turn: dispatching a long job is allowed again. Within ONE turn
-        // a second dispatch is refused, because that means the model fired
-        // twice without waiting for the first result — see GeniusToolContext.
         TurnId++;
         _turnCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         var token = _turnCts.Token;
@@ -833,7 +840,13 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                     {
                         var pending = _pendingMessage;
                         _pendingMessage = null;
-                        StartOrQueueTurn(pending);
+                        StartOrQueueTurn(pending, fromPlayer: true);
+                    }
+                    else if (_pendingEvent is not null)
+                    {
+                        var pendingEvent = _pendingEvent;
+                        _pendingEvent = null;
+                        StartOrQueueTurn(pendingEvent, fromPlayer: false);
                     }
 
                     break;
@@ -879,16 +892,6 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                         _failureCounts.TryGetValue(failureType, out var seen) ? seen + 1 : 1;
                 }
             }
-            // If the owning turn was cancelled, the model never sees this
-            // result — surface it in chat so the player still gets the outcome.
-            // (The agent-null check keeps the server's copy for remote players
-            // from logging into a chat nobody reads.)
-            if (LongRunningTools.Contains(name) && _agent is { IsBusy: false })
-            {
-                _mainThreadQueue.Enqueue(
-                    () => AppendLog(GeniusChatRole.Info, $"(后台完成) {name}: {Truncate(result, 140)}"));
-            }
-
             return result;
         });
     }
@@ -953,6 +956,14 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         return pending.Task;
     }
 
+    /// <summary>Server-side: remember which client owns this companion's brain.</summary>
+    public void RememberNetPeer(Guid playerGuid, Guid tokenId)
+    {
+        _netPeerGuid = playerGuid;
+        _netPeerToken = tokenId;
+        _hasNetPeer = true;
+    }
+
     /// <summary>Called from the package handler when the server's result lands.</summary>
     public void CompleteNetTool(uint requestId, string result)
     {
@@ -960,6 +971,18 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         {
             pending.TrySetResult(result);
         }
+    }
+
+    /// <summary>Client brain: a server-side order finished. Wake a turn.</summary>
+    public void HandleNetEvent(string payload)
+    {
+        if (_agent is null)
+        {
+            return;
+        }
+
+        AppendLog(GeniusChatRole.Info, Truncate(payload, 140));
+        StartOrQueueTurn(payload, fromPlayer: false);
     }
 
     /// <summary>Marshals arbitrary work onto this component's game-thread queue.</summary>
@@ -991,12 +1014,6 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
                     : ExecuteToolAsync(name, payload);
         }
     }
-
-    private static readonly HashSet<string> LongRunningTools = new(StringComparer.Ordinal)
-    {
-        "mine_resource", "goto", "craft", "smelt", "collect_items", "dig_block", "take_from_chest",
-        "descend_to", "till_soil", "plant_seed", "build_shelter", "harvest_crops", "use_bucket",
-    };
 
     /// <summary>
     /// Routes one tool call to its handler. This used to be a 421-line switch
@@ -1031,7 +1048,7 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
         }
 
         var context = new Tools.GeniusToolContext(
-            this, m_componentPlayer, m_subsystemTerrain, m_subsystemBodies, _knowledgeStore, brain);
+            this, m_componentPlayer, m_subsystemTerrain, m_subsystemBodies, _knowledgeStore, brain, name);
         return handler(context, arguments);
     }
 
@@ -1039,49 +1056,150 @@ public sealed class GeniusPlayerComponent : Component, IUpdateable
     private const string DeathMarker = "I died on the job";
 
     /// <summary>
-    /// Result-oriented mining: if the NPC dies mid-expedition, resummon it,
-    /// tunnel back to the death spot, recover the dropped gear, and restart the
-    /// job. Gives up after three deaths.
+    /// Accepts a mining trip immediately (Numen setTask). The die-revive loop
+    /// keeps running in the background and one task_finished covers the whole
+    /// expedition, including extra lives — inner orders must not each wake the
+    /// brain or a death would look like a finished job.
     /// </summary>
-    internal async Task<string> RunResilientMiningAsync(string resource, int count)
+    internal Task<string> DispatchResilientMining(string resource, int count)
     {
-        var notes = "";
-        for (var life = 0; life < 3; life++)
+        var turn = TurnId;
+        var brain = FindBrain();
+        if (brain is null)
         {
-            // Capture the brain up front: after a death the revived NPC is a
-            // fresh entity, and only this instance knows where it fell.
-            var brain = await OnMainThread(FindBrain).ConfigureAwait(false);
-            var result = await StartOrderAsync(() => new MineResourceOrder(resource, count))
-                .ConfigureAwait(false);
-            if (result is null)
-            {
-                return notes + "error[not_summoned]: the companion is not summoned";
-            }
-
-            if (!result.Contains(DeathMarker, StringComparison.Ordinal))
-            {
-                return notes.Length == 0 ? result : $"{notes}最终:{result}";
-            }
-
-            var deathPosition = brain?.DeathPosition;
-            var revived = await ReviveAsync().ConfigureAwait(false);
-            if (!revived)
-            {
-                return notes + "error[died]: I died and could not be revived";
-            }
-
-            if (deathPosition is { } position)
-            {
-                var deathCell = Terrain.ToCell(position);
-                await StartOrderAsync(() => new GotoOrder(deathCell, digThrough: true))
-                    .ConfigureAwait(false);
-                var recovered = await StartOrderAsync(() => new CollectItemsOrder())
-                    .ConfigureAwait(false);
-                notes += $"(第{life + 1}次阵亡于({deathCell.X},{deathCell.Y},{deathCell.Z}),已复活并回收:{recovered})";
-            }
+            return Task.FromResult(
+                "error[not_summoned]: the companion is not summoned — ask the player to summon it first");
         }
 
-        return notes + "error[died]: 反复阵亡,任务中止 —— 那片区域太危险了";
+        if (Tools.GeniusToolContext.IsSameTurnDispatch(brain.CurrentOrder?.DispatchTurn ?? 0, turn))
+        {
+            return Task.FromResult(GeniusFailure.Format(FailureType.InvalidArgument,
+                $"I just accepted task #{brain.CurrentOrder!.TaskId} in this same reply — one body, one job. " +
+                "Wait for its task_finished (or task_stop). Next turn, a different job replaces it"));
+        }
+
+        var first = new MineResourceOrder(resource, count);
+        brain.StartOrder(first, turn);
+        if (first.Completion.IsCompleted)
+        {
+            return first.Completion;
+        }
+
+        var taskId = first.TaskId;
+        _ = FinishResilientMiningAsync(first, resource, count, taskId);
+        return Task.FromResult(GeniusTaskProtocol.Accept(taskId, "mine_resource"));
+    }
+
+    /// <summary>
+    /// Watches a dispatched order and wakes the brain (or the owning client)
+    /// when it finishes. Must not cancel the turn that just accepted it.
+    /// </summary>
+    internal void WatchBackgroundOrder(string toolName, GeniusOrder order)
+    {
+        var taskId = order.TaskId;
+        _ = order.Completion.ContinueWith(
+            task =>
+            {
+                var result = task.Status == TaskStatus.RanToCompletion
+                    ? task.Result
+                    : GeniusFailure.Format(FailureType.Internal, task.Exception?.GetBaseException().Message ?? "faulted");
+                RunOnMainThread(() => DeliverTaskFinished(taskId, toolName, result));
+            },
+            TaskScheduler.Default);
+    }
+
+    internal void DeliverTaskFinished(int taskId, string toolName, string result)
+    {
+        var ev = GeniusTaskProtocol.FinishedEvent(taskId, toolName, result);
+        AppendLog(GeniusChatRole.Info, Truncate(ev, 160));
+        if (_agent is not null)
+        {
+            StartOrQueueTurn(ev, fromPlayer: false);
+            return;
+        }
+
+        SendNetEvent(ev);
+    }
+
+    private void SendNetEvent(string payload)
+    {
+        if (!_hasNetPeer || CommonLib.WorkType != WorkType.Server)
+        {
+            return;
+        }
+
+        var client = GeniusNetwork.FindClient(_netPeerGuid, _netPeerToken);
+        if (client is { IsConnected: true })
+        {
+            CommonLib.Net.QueuePackage(new GeniusToolPackage(
+                new GeniusToolMessage(GeniusToolMessageKind.Event, 0, "task_finished", payload))
+            {
+                To = client,
+            });
+        }
+    }
+
+    private async Task FinishResilientMiningAsync(
+        GeniusOrder first, string resource, int count, int taskId)
+    {
+        try
+        {
+            var notes = "";
+            var result = await first.Completion.ConfigureAwait(false);
+            var lives = 1;
+            while (true)
+            {
+                if (result.Contains("error[superseded]", StringComparison.Ordinal)
+                    || !result.Contains(DeathMarker, StringComparison.Ordinal))
+                {
+                    DeliverOnMain(notes.Length == 0 ? result : $"{notes}最终:{result}");
+                    return;
+                }
+
+                if (lives >= 3)
+                {
+                    DeliverOnMain(notes + "error[died]: 反复阵亡,任务中止 —— 那片区域太危险了");
+                    return;
+                }
+
+                var deathBrain = await OnMainThread(FindBrain).ConfigureAwait(false);
+                var deathPosition = deathBrain?.DeathPosition;
+                var revived = await ReviveAsync().ConfigureAwait(false);
+                if (!revived)
+                {
+                    DeliverOnMain(notes + "error[died]: I died and could not be revived");
+                    return;
+                }
+
+                if (deathPosition is { } position)
+                {
+                    var deathCell = Terrain.ToCell(position);
+                    await StartOrderAsync(() => new GotoOrder(deathCell, digThrough: true))
+                        .ConfigureAwait(false);
+                    var recovered = await StartOrderAsync(() => new CollectItemsOrder())
+                        .ConfigureAwait(false);
+                    notes += $"(第{lives}次阵亡于({deathCell.X},{deathCell.Y},{deathCell.Z}),已复活并回收:{recovered})";
+                }
+
+                lives++;
+                var next = await StartOrderAsync(() => new MineResourceOrder(resource, count))
+                    .ConfigureAwait(false);
+                if (next is null)
+                {
+                    DeliverOnMain(notes + "error[not_summoned]: the companion is not summoned");
+                    return;
+                }
+
+                result = next;
+            }
+        }
+        catch (Exception exception)
+        {
+            DeliverOnMain(GeniusFailure.Format(FailureType.Internal, exception.Message));
+        }
+
+        void DeliverOnMain(string text) =>
+            RunOnMainThread(() => DeliverTaskFinished(taskId, "mine_resource", text));
     }
 
     private async Task<bool> ReviveAsync()

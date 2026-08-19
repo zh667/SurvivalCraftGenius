@@ -22,13 +22,15 @@ public sealed class GeniusToolContext
         SubsystemTerrain subsystemTerrain,
         SubsystemBodies subsystemBodies,
         GeniusKnowledgeStore knowledge,
-        ComponentGeniusBrain? brain)
+        ComponentGeniusBrain? brain,
+        string toolName = "")
     {
         Player = player;
         ComponentPlayer = componentPlayer;
         SubsystemTerrain = subsystemTerrain;
         SubsystemBodies = subsystemBodies;
         Knowledge = knowledge;
+        ToolName = toolName;
         _brain = brain;
     }
 
@@ -41,6 +43,9 @@ public sealed class GeniusToolContext
     public SubsystemBodies SubsystemBodies { get; }
 
     public GeniusKnowledgeStore Knowledge { get; }
+
+    /// <summary>The catalog name of the tool currently running this handler.</summary>
+    public string ToolName { get; }
 
     /// <summary>
     /// The summoned companion. The router refuses every tool outside
@@ -68,57 +73,44 @@ public sealed class GeniusToolContext
         arguments["x"] is not null && arguments["y"] is not null && arguments["z"] is not null;
 
     /// <summary>
-    /// Dispatches a long job, replacing whatever was running.
+    /// Dispatches a body job: accept immediately, body runs in the background,
+    /// completion arrives as <c>task_finished</c> (Numen <c>setTask</c>).
     ///
-    /// <para>The one case that is refused is a SECOND dispatch inside the SAME
-    /// agent turn: that means the model fired again without waiting for the
-    /// first result, which is how three houses in a row got restarted from
-    /// zero. A dispatch from a later turn is the player changing their mind,
-    /// and that always wins — v0.11.7 refused those too, and a companion that
-    /// ignores you for five minutes because it is mining reads as broken
-    /// rather than busy.</para>
+    /// <para>A later turn's new job replaces the running one — the player
+    /// changing their mind always wins. The one refusal is a SECOND dispatch
+    /// inside the SAME agent turn: the model fired twice without waiting for
+    /// the first receipt. Instant-complete orders (finished in OnStart) still
+    /// return their result as the tool result, so a missing material does not
+    /// bounce through an event.</para>
     /// </summary>
     public Task<string> Dispatch(GeniusOrder order)
     {
         var turn = Player.TurnId;
-
-        // Refuse ONLY re-sending the SAME job in the same reply. That is the
-        // case that restarts work from zero.
-        //
-        // The first version refused any second dispatch in a turn, which
-        // deadlocked a whole session: an agent-side timeout left the order
-        // alive in the body, so every later tool — a different tool, a
-        // different job — was refused for the rest of the turn, and the
-        // companion could only tell the player to re-summon it. A different
-        // job replacing the running one is the normal, safe path; that is what
-        // "one body, one job" has always meant.
         var running = Brain.CurrentOrder;
-        if (IsDuplicateDispatch(order.Signature, running?.Signature, running?.DispatchTurn ?? 0, turn))
+        if (IsSameTurnDispatch(running?.DispatchTurn ?? 0, turn))
         {
             return Task.FromResult(GeniusFailure.Format(FailureType.InvalidArgument,
-                $"I am already doing exactly this (task #{running!.TaskId}), dispatched moments " +
-                "ago in this same reply. Sending it again would restart it from zero — wait for " +
-                "its result. task_status shows progress, task_stop aborts it"));
+                $"I just accepted task #{running!.TaskId} in this same reply — one body, one job. " +
+                "Wait for its task_finished (or task_stop). Next turn, a different job replaces it"));
         }
 
         Brain.StartOrder(order, turn);
-        return order.Completion;
+        if (order.Completion.IsCompleted)
+        {
+            return order.Completion;
+        }
+
+        var toolName = string.IsNullOrEmpty(ToolName) ? order.GetType().Name : ToolName;
+        Player.WatchBackgroundOrder(toolName, order);
+        return Task.FromResult(GeniusTaskProtocol.Accept(order.TaskId, toolName));
     }
 
     /// <summary>
-    /// Should this dispatch be refused? Extracted so the rule that deadlocked
-    /// playtest 16 has a test: the guard must catch the model re-sending the
-    /// SAME job in one reply, and must never block a DIFFERENT job, because
-    /// blocking those left the companion unable to do anything at all for the
-    /// rest of the turn.
+    /// True when the slot already holds a job accepted in this same turn.
+    /// Numen: refuse the second dispatch in the batch; a later turn replaces.
     /// </summary>
-    public static bool IsDuplicateDispatch(
-        string? newSignature, string? runningSignature, int runningTurn, int currentTurn) =>
-        newSignature is not null
-        && runningSignature is not null
-        && currentTurn != 0
-        && runningTurn == currentTurn
-        && string.Equals(newSignature, runningSignature, StringComparison.Ordinal);
+    public static bool IsSameTurnDispatch(int runningTurn, int currentTurn) =>
+        currentTurn != 0 && runningTurn == currentTurn;
 }
 
 /// <summary>One tool's implementation. Runs on the main thread.</summary>

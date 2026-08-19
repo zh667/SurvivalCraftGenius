@@ -52,11 +52,11 @@ public static class ToolCatalog
             """));
         registry.Register(new GeniusToolDefinition(
             "task_status",
-            "What the body is doing right now, and for how long. Use this instead of re-sending a long job to find out whether it is still going — re-sending restarts it from zero.",
+            "What the body is doing right now, and for how long. Do not poll; task_finished arrives by itself. Use this only when the player asks how it is going.",
             NoParameters));
         registry.Register(new GeniusToolDefinition(
             "task_stop",
-            "Abort the running job and free the body. For when the player changes their mind or the job is clearly not working. A new action tool already replaces the running job, so you rarely need this first.",
+            "Abort the running job. It will send task_finished status=stopped. A new action tool already replaces the running job, so you rarely need this first.",
             NoParameters));
         registry.Register(new GeniusToolDefinition(
             "scan_surroundings",
@@ -71,7 +71,7 @@ public static class ToolCatalog
             """));
         registry.Register(new GeniusToolDefinition(
             "goto",
-            "Walk to the given block coordinate. With dig_through=true I will tunnel/build steps through terrain to get there.",
+            "Walk to the given block coordinate. BACKGROUND: returns a task_id immediately; wait for task_finished, do not re-send. With dig_through=true I will tunnel/build steps through terrain to get there.",
             """
             {"type":"object","properties":{
               "x":{"type":"integer"},
@@ -82,7 +82,7 @@ public static class ToolCatalog
             """));
         registry.Register(new GeniusToolDefinition(
             "mine_resource",
-            "Autonomous mining trip: find blocks by name within ~24m (28 below), tunnel, dig, collect drops, repeat to count, walk back. Takes minutes; returns a summary.",
+            "Autonomous mining trip: find, tunnel, dig, collect, walk back. BACKGROUND: returns a task_id immediately and takes minutes; wait for task_finished, never re-send while running.",
             """
             {"type":"object","properties":{
               "resource_name":{"type":"string","description":"Block name substring, e.g. 铁/iron/煤/coal."},
@@ -113,7 +113,7 @@ public static class ToolCatalog
             """));
         registry.Register(new GeniusToolDefinition(
             "tend_farm",
-            "Put me on STANDING FARM DUTY around x/y/z: from then on I pick up drops, harvest what ripens and replant bare farmland by myself, forever, with no further instruction from you. Use it whenever the player wants a field kept rather than one job done — it is far cheaper than driving each round by hand. Any other order you give still takes priority and I return to the field afterwards. Pass stop=true to end it.",
+            "STANDING farm duty around x/y/z: pick up, harvest ripe, replant — forever, 0 further tokens. No task_finished; a later body job replaces it. Pass stop=true to end.",
             """
             {"type":"object","properties":{
               "x":{"type":"integer"},
@@ -138,10 +138,7 @@ public static class ToolCatalog
             """));
         registry.Register(new GeniusToolDefinition(
             "build_shelter",
-            "Build a whole shelter in one call: level the ground first, then filled floor (never floating), "
-            + "four walls, a doorway and a roof, from bulk blocks in my inventory. Give x/y/z, or omit "
-            + "to have me survey a spot. Never hand-place a house with place_block — that yields loose "
-            + "blocks, not a building.",
+            "Build a whole shelter in one call. BACKGROUND: returns a task_id immediately; wait for task_finished, never re-send while running. Level the ground, filled floor, walls, doorway, roof. Never hand-place a house with place_block.",
             """
             {"type":"object","properties":{
               "x":{"type":"integer"},
@@ -221,7 +218,7 @@ public static class ToolCatalog
             """));
         registry.Register(new GeniusToolDefinition(
             "follow_player",
-            "Follow the player continuously. Ends when any task order or a teleport starts; call again to resume.",
+            "Follow the player continuously. STANDING: no task_finished; any new body job ends it.",
             NoParameters));
         registry.Register(new GeniusToolDefinition(
             "dig_block",
@@ -244,7 +241,7 @@ public static class ToolCatalog
             NoParameters));
         registry.Register(new GeniusToolDefinition(
             "collect_items",
-            "Pick up all dropped items within ~14m. Use after digging.",
+            "Pick up all dropped items within ~14m. BACKGROUND: returns a task_id immediately; wait for task_finished.",
             NoParameters));
         registry.Register(new GeniusToolDefinition(
             "take_from_chest",
@@ -294,7 +291,7 @@ public static class ToolCatalog
             """));
         registry.Register(new GeniusToolDefinition(
             "attack",
-            "Fight the named creature until it dies or escapes. I pick HOW on my own — bow when it is out of reach or in the air, melee when I can close — so do not ask for a weapon: range, line of sight and arrow count are things you cannot see when you call this. Carrying a bow and arrows is what makes flying birds huntable at all. Cannot target the player.",
+            "BACKGROUND: returns a task_id immediately; wait for task_finished. Fight the named creature until it dies or escapes. I pick HOW on my own — bow when it is out of reach or in the air, melee when I can close. Cannot target the player.",
             """
             {"type":"object","properties":{
               "target_name":{"type":"string","description":"Creature display name substring, e.g. wolf/狼."},

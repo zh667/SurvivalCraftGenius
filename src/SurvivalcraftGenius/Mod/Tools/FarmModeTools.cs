@@ -49,7 +49,7 @@ public static class FarmModeTools
             (int?)arguments["radius"] ?? GeniusFarmMode.DefaultRadius,
             (string?)arguments["seed_name"] ?? "");
         return Task.FromResult(
-            $"开始看田:{keeper.Describe()}。从现在起我会自己捡掉落、收熟的、补种空地," +
-            "不用你再一步步指挥;你随时可以给我别的活,那会优先,干完自动回来看田");
+            GeniusTaskProtocol.Accept(0, "tend_farm", standing: true) +
+            $" {keeper.Describe()}。其它身体活会优先,干完自动回来看田");
     }
 }

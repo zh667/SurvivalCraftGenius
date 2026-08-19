@@ -58,9 +58,7 @@ public static class CombatTools
         }
 
         var sneak = arguments["sneak"]?.ToObject<bool>() ?? false;
-        var order = new AttackOrder(target, sneak);
-        brain.StartOrder(order);
-        return order.Completion;
+        return context.Dispatch(new AttackOrder(target, sneak));
     }
 
     /// <summary>

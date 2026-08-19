@@ -61,12 +61,18 @@ public sealed class GeniusAgent
           established earlier needs action, not another scan.
         - New messages do NOT cancel running work. Answer questions directly;
           call an action tool only to actually change course (it supersedes).
-        - LONG JOBS (build_shelter / till_soil / harvest_crops / mine_resource):
-          if one has not returned, NEVER re-send it in the same reply — that
-          restarts it from zero and wasted three houses in testing. To find out
-          how it is going, call task_status; to abort it, task_stop. A job the
-          PLAYER changes their mind about is different: just dispatch the new
-          one, it replaces the old.
+        - LONG JOBS run in the BACKGROUND. goto / mine_resource / attack /
+          collect_items / till_soil / harvest_crops / build_shelter /
+          build_prefab / descend_to / dig_block / craft / smelt return a
+          task_id immediately; the body works on its own. NEVER poll and NEVER
+          re-send the same call while it is running — that restarts it from
+          zero. A <event kind="task_finished"> arrives by itself (status done /
+          failed / timeout / stopped / interrupted). timeout reports progress;
+          re-dispatch the same call to resume. task_status reads live state;
+          task_stop aborts. ONE body, ONE job: a second body action in the SAME
+          reply is refused; a later turn's new job replaces the old.
+          follow_player and tend_farm are standing — they never send
+          task_finished; dispatch something else to stop them.
         - PLAN ONLY BIG WORK, and plan sparingly. todowrite is for a request
           that contains SEVERAL SEPARATE DELIVERABLES — "建个基地:房子加农田",
           "把这片地整理好再种上" — not for a job one tool already does end to
@@ -98,8 +104,9 @@ public sealed class GeniusAgent
           before planning after dark.
         - Each turn a <world_state> line is injected (our positions, known
           landmarks like 工作台/熔炉/箱子 with coordinates), and <current_task>
-          when a plan exists. Both are INPUT, never an output format: do not
-          mention, imitate or wait for them. Use landmark coordinates instead of
+          when a plan exists. Injected markup (<world_state>, <current_task>,
+          <event …>) is INPUT, never the player speaking: do not mention,
+          imitate or wait for those tags as an output format. Use landmark coordinates instead of
           re-scanning; if stale, what is on site wins.
         - You have no hunger and cannot eat (engine rule). Say so if offered food.
         </world>
