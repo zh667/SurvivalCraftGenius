@@ -56,6 +56,16 @@ public class GeniusToolCodecTests
     }
 
     [Fact]
+    public void Event_RoundTripsExactly()
+    {
+        var message = new GeniusToolMessage(
+            GeniusToolMessageKind.Event, 0, "task_finished",
+            "<event kind=\"task_finished\" id=\"4\" tool=\"goto\" status=\"done\">arrived</event>");
+
+        Assert.Equal(message, RoundTrip(message));
+    }
+
+    [Fact]
     public void UnknownKindByte_Throws()
     {
         using var stream = new MemoryStream();

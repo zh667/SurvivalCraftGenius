@@ -99,6 +99,9 @@
 - 客户端本地执行的工具:say、query_recipes、query_help、read_knowledge、list_waypoints;
   teleport 的路标名在客户端解析成坐标后再上网。
 - 召唤/召回作为伪工具 `_summon`/`_dismiss` 走同一条中转。
+- 包 kinds:`Request`(0) / `Result`(1) / `Event`(2)。身体活受理即回执(`Result` 里是
+  `async=true` 的 receipt);干完后服务端再推一条 `Event`(`task_finished`),客户端开一轮
+  而不是让模型轮询。Identity 仍按 (PlayerGuid, TokenId) 在完成时重绑。
 
 ## 10. ModLoader 钩子:**必须显式注册,否则 override 是死代码**
 

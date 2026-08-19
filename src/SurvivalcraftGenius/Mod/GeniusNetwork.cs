@@ -69,7 +69,7 @@ public static class GeniusNetwork
         {
             HandleRequestOnServer(package, netNode);
         }
-        else if (!isServer && package.Message.Kind == GeniusToolMessageKind.Result)
+        else if (!isServer && package.Message.Kind is GeniusToolMessageKind.Result or GeniusToolMessageKind.Event)
         {
             HandleResultOnClient(package, projectNet);
         }
@@ -89,6 +89,7 @@ public static class GeniusNetwork
         var message = package.Message;
         var sourceGuid = source.PlayerGuid;
         var sourceToken = source.TokenId;
+        component.RememberNetPeer(sourceGuid, sourceToken);
         _ = RunAsync();
 
         async Task RunAsync()
@@ -108,7 +109,7 @@ public static class GeniusNetwork
             // re-resolve the client — byte IDs are recycled across reconnects.
             component.RunOnMainThread(() =>
             {
-                var client = FindClient(netNode, sourceGuid, sourceToken);
+                var client = FindClientByIdentity(netNode, sourceGuid, sourceToken);
                 if (client is { IsConnected: true })
                 {
                     netNode.QueuePackage(new GeniusToolPackage(
@@ -121,7 +122,10 @@ public static class GeniusNetwork
         }
     }
 
-    private static Client? FindClient(NetNode netNode, Guid playerGuid, Guid tokenId)
+    public static Client? FindClient(Guid playerGuid, Guid tokenId) =>
+        CommonLib.Net is { } netNode ? FindClientByIdentity(netNode, playerGuid, tokenId) : null;
+
+    private static Client? FindClientByIdentity(NetNode netNode, Guid playerGuid, Guid tokenId)
     {
         foreach (var client in netNode.Clients.Values)
         {
@@ -138,6 +142,17 @@ public static class GeniusNetwork
     {
         var component = projectNet.FindSubsystem<SubsystemPlayers>(throwOnError: false)
             ?.MainPlayer?.Entity.FindComponent<GeniusPlayerComponent>(throwOnError: false);
-        component?.CompleteNetTool(package.Message.RequestId, package.Message.Payload);
+        if (component is null)
+        {
+            return;
+        }
+
+        if (package.Message.Kind == GeniusToolMessageKind.Event)
+        {
+            component.HandleNetEvent(package.Message.Payload);
+            return;
+        }
+
+        component.CompleteNetTool(package.Message.RequestId, package.Message.Payload);
     }
 }

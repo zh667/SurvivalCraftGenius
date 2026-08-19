@@ -21,7 +21,7 @@ public static class WorkTools
 
     /// <summary>Runs the die-revive-recover-resume loop, so it lives on the component.</summary>
     public static Task<string> MineResource(GeniusToolContext context, JObject arguments) =>
-        context.Player.RunResilientMiningAsync(
+        context.Player.DispatchResilientMining(
             (string?)arguments["resource_name"] ?? "",
             (int?)arguments["count"] ?? 1);
 

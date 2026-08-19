@@ -72,7 +72,7 @@ public static class PlanTools
         var seconds = brain.GameTime - order.StartedAt;
         return Task.FromResult(
             $"task #{order.TaskId} ({order.GetType().Name}) has been running {seconds:0}s. " +
-            "It reports its own result when it finishes — do not re-dispatch it. " +
+            "Wait for its task_finished — do not poll and do not re-dispatch. " +
             "task_stop aborts it if you want the body back now");
     }
 
